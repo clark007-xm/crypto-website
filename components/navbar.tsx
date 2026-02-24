@@ -1,113 +1,100 @@
-"use client";
+"use client"
 
-import { useState } from "react";
-import { Wallet, Menu, X, Zap } from "lucide-react";
+import { useState } from "react"
+import { Zap, Globe } from "lucide-react"
+import { useT, useLocale } from "@/lib/i18n/context"
+import type { Locale } from "@/lib/i18n/types"
+import { NodeSelector } from "./node-selector"
+import { WalletButton } from "./wallet-button"
 
-export default function Navbar() {
-  const [mobileOpen, setMobileOpen] = useState(false);
+const localeLabels: { key: Locale; label: string }[] = [
+  { key: "zh", label: "\u7B80\u4F53\u4E2D\u6587" },
+  { key: "en", label: "English" },
+  { key: "vi", label: "Ti\u1EBFng Vi\u1EC7t" },
+]
+
+const localeShort: Record<Locale, string> = {
+  zh: "\u4E2D",
+  en: "EN",
+  vi: "VI",
+}
+
+export function Navbar() {
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const t = useT()
+  const [locale, setLocale] = useLocale()
 
   return (
-    <nav className="navbar bg-base-200/80 backdrop-blur-xl border-b border-base-300 sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto w-full flex items-center justify-between px-4">
-        {/* Logo */}
-        <a
-          href="/"
-          className="flex items-center gap-2 text-xl font-bold text-primary"
-        >
-          <Zap className="w-6 h-6 fill-primary" />
-          <span>CryptoLoot</span>
-        </a>
-
-        {/* Desktop Nav */}
-        <div className="hidden md:flex items-center gap-6">
-          <a
-            href="#draws"
-            className="text-base-content/70 hover:text-primary transition-colors text-sm font-medium"
-          >
-            {"Draws"}
-          </a>
-          <a
-            href="#winners"
-            className="text-base-content/70 hover:text-primary transition-colors text-sm font-medium"
-          >
-            {"Winners"}
-          </a>
-          <a
-            href="#how-it-works"
-            className="text-base-content/70 hover:text-primary transition-colors text-sm font-medium"
-          >
-            {"How it Works"}
-          </a>
-          <a
-            href="#faq"
-            className="text-base-content/70 hover:text-primary transition-colors text-sm font-medium"
-          >
-            {"FAQ"}
-          </a>
-        </div>
-
-        {/* CTA + Mobile Toggle */}
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="btn btn-primary btn-sm gap-2 hidden sm:flex"
-          >
-            <Wallet className="w-4 h-4" />
-            {"Connect Wallet"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm md:hidden"
+    <div className="navbar bg-base-300/80 backdrop-blur-xl sticky top-0 z-50 border-b border-base-content/5 px-2 sm:px-4 min-h-[3.5rem]">
+      {/* Left: logo + mobile dropdown */}
+      <div className="navbar-start">
+        <div className="dropdown">
+          <div
+            tabIndex={0}
+            role="button"
+            className="btn btn-ghost lg:hidden"
             onClick={() => setMobileOpen(!mobileOpen)}
-            aria-label="Toggle menu"
           >
-            {mobileOpen ? (
-              <X className="w-5 h-5" />
-            ) : (
-              <Menu className="w-5 h-5" />
-            )}
-          </button>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h8m-8 6h16" />
+            </svg>
+          </div>
+          {mobileOpen && (
+            <ul
+              tabIndex={0}
+              className="menu menu-sm dropdown-content bg-base-300 rounded-box z-10 mt-3 w-52 p-2 shadow-lg border border-base-content/5"
+            >
+              <li><a href="#top" onClick={() => setMobileOpen(false)}>{t.nav.home}</a></li>
+              <li><a href="#ongoing" onClick={() => setMobileOpen(false)}>{t.nav.ongoing}</a></li>
+              <li><a href="#history" onClick={() => setMobileOpen(false)}>{t.nav.history}</a></li>
+              <li><a href="#rules" onClick={() => setMobileOpen(false)}>{t.nav.rules}</a></li>
+            </ul>
+          )}
         </div>
+        <a className="btn btn-ghost text-lg sm:text-xl gap-1 sm:gap-2 font-display font-bold px-1 sm:px-3" href="#top">
+          <Zap className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+          <span className="text-primary">C</span>
+          <span className="text-base-content hidden sm:inline">rypto</span>
+          <span className="text-primary sm:text-base-content">L</span>
+          <span className="text-base-content hidden sm:inline">oot</span>
+        </a>
       </div>
 
-      {/* Mobile Menu */}
-      {mobileOpen && (
-        <div className="md:hidden bg-base-200 border-t border-base-300 px-4 pb-4 animate-slide-up">
-          <div className="flex flex-col gap-3 pt-3">
-            <a
-              href="#draws"
-              className="text-base-content/70 hover:text-primary transition-colors text-sm font-medium py-2"
-            >
-              {"Draws"}
-            </a>
-            <a
-              href="#winners"
-              className="text-base-content/70 hover:text-primary transition-colors text-sm font-medium py-2"
-            >
-              {"Winners"}
-            </a>
-            <a
-              href="#how-it-works"
-              className="text-base-content/70 hover:text-primary transition-colors text-sm font-medium py-2"
-            >
-              {"How it Works"}
-            </a>
-            <a
-              href="#faq"
-              className="text-base-content/70 hover:text-primary transition-colors text-sm font-medium py-2"
-            >
-              {"FAQ"}
-            </a>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm gap-2 w-full sm:hidden"
-            >
-              <Wallet className="w-4 h-4" />
-              {"Connect Wallet"}
-            </button>
+      {/* Center: desktop nav */}
+      <div className="navbar-center hidden lg:flex">
+        <ul className="menu menu-horizontal px-1 gap-1">
+          <li><a href="#top" className="hover:text-primary focus:text-primary">{t.nav.home}</a></li>
+          <li><a href="#ongoing" className="hover:text-primary focus:text-primary">{t.nav.ongoing}</a></li>
+          <li><a href="#history" className="hover:text-primary focus:text-primary">{t.nav.history}</a></li>
+          <li><a href="#rules" className="hover:text-primary focus:text-primary">{t.nav.rules}</a></li>
+        </ul>
+      </div>
+
+      {/* Right: language + network + wallet */}
+      <div className="navbar-end gap-1 sm:gap-2">
+        {/* Language switcher */}
+        <div className="dropdown dropdown-end">
+          <div tabIndex={0} role="button" className="btn btn-ghost btn-xs sm:btn-sm gap-1">
+            <Globe className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <span className="text-xs font-bold">{localeShort[locale]}</span>
           </div>
+          <ul tabIndex={0} className="dropdown-content menu bg-base-300 rounded-box z-20 mt-2 w-40 p-2 shadow-lg border border-base-content/5">
+            {localeLabels.map((l) => (
+              <li key={l.key}>
+                <a
+                  className={locale === l.key ? "active font-bold" : ""}
+                  onClick={() => setLocale(l.key)}
+                >
+                  {l.label}
+                </a>
+              </li>
+            ))}
+          </ul>
         </div>
-      )}
-    </nav>
-  );
+
+        <NodeSelector />
+        <WalletButton />
+      </div>
+    </div>
+  )
 }

@@ -1,21 +1,22 @@
 import React from "react"
-import type { Metadata, Viewport } from 'next'
-import { Inter, JetBrains_Mono } from 'next/font/google'
+import type { Metadata, Viewport } from "next"
+import { Inter, Space_Grotesk } from "next/font/google"
+import { I18nProvider } from "@/lib/i18n/context"
+import { RpcProvider } from "@/lib/rpc/context"
+import { WalletProvider } from "@/lib/wallet/context"
 
-import './globals.css'
+import "./globals.css"
 
-const _inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
-const _jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-jetbrains-mono' })
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
+const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-space-grotesk" })
 
 export const metadata: Metadata = {
-  title: 'CryptoLoot - Crypto Lucky Draw | 1 USDT to Win Big',
-  description: 'The first decentralized lucky draw platform. Spend just 1 USDT for a chance to win BTC, ETH, and rare NFTs. Fully transparent, on-chain verifiable.',
+  title: "CryptoLoot - 1U\u593A\u5B9D",
+  description: "\u4EC5\u9700 1 USDT\uFF0C\u8D62\u53D6 BTC\u3001ETH \u7B49\u52A0\u5BC6\u8D44\u4EA7\u5927\u5956",
 }
 
 export const viewport: Viewport = {
-  themeColor: '#0a0e1a',
-  width: 'device-width',
-  initialScale: 1,
+  themeColor: "#0f172a",
 }
 
 export default function RootLayout({
@@ -24,8 +25,16 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="zh-CN" data-theme="cryptodark">
-      <body className="font-sans antialiased min-h-screen">{children}</body>
+    <html lang="zh-CN" data-theme="cryptodark" suppressHydrationWarning>
+      <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}>
+        <I18nProvider>
+          <RpcProvider>
+            <WalletProvider>
+              {children}
+            </WalletProvider>
+          </RpcProvider>
+        </I18nProvider>
+      </body>
     </html>
   )
 }

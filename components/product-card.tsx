@@ -1,117 +1,121 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Clock, Users, TrendingUp } from "lucide-react"
+import { useState } from "react"
+import { Clock, Users, Flame } from "lucide-react"
+import { useCountdown } from "@/hooks/use-countdown"
+import { useT } from "@/lib/i18n/context"
+import { useWallet } from "@/lib/wallet/context"
+import { ConnectModal } from "./connect-modal"
 
 interface ProductCardProps {
-  name: string
-  symbol: string
   icon: string
+  iconColor?: string
+  name: string
   value: string
-  price: string
   totalSlots: number
   filledSlots: number
-  endsIn: number // seconds
-  tag?: string
+  endTime: Date
+  isHot?: boolean
+  period: string
 }
 
-function useCountdown(seconds: number) {
-  const [time, setTime] = useState(seconds)
-
-  useEffect(() => {
-    if (time <= 0) return
-    const timer = setInterval(() => {
-      setTime((t) => (t > 0 ? t - 1 : 0))
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [time])
-
-  const h = Math.floor(time / 3600)
-  const m = Math.floor((time % 3600) / 60)
-  const s = time % 60
-
-  return { h, m, s }
-}
-
-export default function ProductCard({
-  name,
-  symbol,
+export function ProductCard({
   icon,
+  iconColor = "text-primary",
+  name,
   value,
-  price,
   totalSlots,
   filledSlots,
-  endsIn,
-  tag,
+  endTime,
+  isHot,
+  period,
 }: ProductCardProps) {
-  const { h, m, s } = useCountdown(endsIn)
+  const { hours, minutes, seconds } = useCountdown(endTime)
+  const t = useT()
+  const { status } = useWallet()
+  const [modalOpen, setModalOpen] = useState(false)
   const progress = (filledSlots / totalSlots) * 100
   const remaining = totalSlots - filledSlots
 
   return (
-    <div className="card bg-base-200 border border-base-300 hover:border-primary/30 transition-all duration-300 group">
-      <div className="card-body gap-4">
-        {/* Header */}
+    <div className="card bg-base-200 border border-base-content/5 hover:border-primary/30 transition-all duration-300 group">
+      <div className="card-body gap-3 sm:gap-4 p-4 sm:p-6">
+        {/* Header row */}
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-base-300 flex items-center justify-center text-2xl">
-              {icon}
+            <div className="avatar placeholder">
+              <div className="bg-base-300 rounded-xl w-11 h-11">
+                <span className={`text-sm font-bold ${iconColor}`}>{icon}</span>
+              </div>
             </div>
             <div>
-              <h3 className="font-bold text-base-content text-lg">{name}</h3>
-              <p className="text-base-content/50 text-sm font-mono">{symbol}</p>
+              <h3 className="card-title text-base font-bold">{name}</h3>
+              <p className="text-xs text-base-content/40">{t.products.period.replace("{n}", period)}</p>
             </div>
           </div>
-          {tag && (
-            <div className="badge badge-sm badge-primary badge-outline">{tag}</div>
+          {isHot && (
+            <div className="badge badge-error badge-sm gap-1 font-bold">
+              <Flame className="h-3 w-3" />
+              HOT
+            </div>
           )}
         </div>
 
-        {/* Value */}
-        <div className="bg-base-300/50 rounded-xl p-4">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-base-content/50 text-xs">{"Prize Value"}</span>
-            <div className="flex items-center gap-1 text-success text-xs">
-              <TrendingUp className="w-3 h-3" />
-              <span>{"+2.4%"}</span>
-            </div>
-          </div>
-          <p className="text-2xl font-bold text-base-content font-mono">{value}</p>
+        {/* Prize value highlight */}
+        <div className="bg-base-300/60 rounded-xl p-3 sm:p-4 text-center border border-base-content/5">
+          <p className="text-xs text-base-content/40 mb-1">{t.products.prizeValue}</p>
+          <p className="text-xl sm:text-2xl font-bold text-primary font-display">{value}</p>
         </div>
 
-        {/* Progress */}
+        {/* Progress bar */}
         <div>
-          <div className="flex items-center justify-between text-xs mb-2">
-            <span className="text-base-content/50 flex items-center gap-1">
-              <Users className="w-3 h-3" />
-              {`${filledSlots}/${totalSlots} participants`}
-            </span>
-            <span className="text-primary font-mono font-bold">{`${remaining} left`}</span>
+          <div className="flex justify-between text-xs mb-2">
+            <span className="text-base-content/50">{t.products.progress}</span>
+            <span className="text-primary font-semibold">{progress.toFixed(1)}%</span>
           </div>
           <progress
-            className="progress progress-primary w-full h-2"
-            value={progress}
-            max={100}
+            className="progress progress-primary w-full"
+            value={filledSlots}
+            max={totalSlots}
           />
+          <div className="flex justify-between text-xs mt-2">
+            <span className="text-base-content/40 flex items-center gap-1">
+              <Users className="h-3 w-3" />
+              {filledSlots.toLocaleString()} {t.products.participated}
+            </span>
+            <span className="text-accent font-medium">{t.products.remaining.replace("{n}", remaining.toLocaleString())}</span>
+          </div>
         </div>
 
         {/* Countdown */}
-        <div className="flex items-center gap-2 text-base-content/50 text-xs">
-          <Clock className="w-3 h-3" />
-          <span>{"Ends in"}</span>
-          <div className="flex gap-1 font-mono text-base-content">
-            <span className="bg-base-300 rounded px-1.5 py-0.5">{String(h).padStart(2, "0")}</span>
-            <span>{":"}</span>
-            <span className="bg-base-300 rounded px-1.5 py-0.5">{String(m).padStart(2, "0")}</span>
-            <span>{":"}</span>
-            <span className="bg-base-300 rounded px-1.5 py-0.5">{String(s).padStart(2, "0")}</span>
+        <div className="flex items-center justify-center gap-2">
+          <Clock className="h-3.5 w-3.5 text-base-content/40" />
+          <span className="text-xs text-base-content/40">{t.products.countdown}</span>
+          <div className="flex items-center gap-1 font-display text-sm">
+            <span className="bg-base-300 rounded px-2 py-0.5 text-primary font-bold tabular-nums">
+              {String(hours).padStart(2, "0")}
+            </span>
+            <span className="text-base-content/20 font-bold">:</span>
+            <span className="bg-base-300 rounded px-2 py-0.5 text-primary font-bold tabular-nums">
+              {String(minutes).padStart(2, "0")}
+            </span>
+            <span className="text-base-content/20 font-bold">:</span>
+            <span className="bg-base-300 rounded px-2 py-0.5 text-primary font-bold tabular-nums">
+              {String(seconds).padStart(2, "0")}
+            </span>
           </div>
         </div>
 
-        {/* CTA */}
-        <button type="button" className="btn btn-primary btn-block group-hover:shadow-lg group-hover:shadow-primary/20 transition-all">
-          {`${price} to Enter`}
+        {/* Action button */}
+        <button
+          className="btn btn-primary btn-block gap-2 group-hover:shadow-lg group-hover:shadow-primary/25 transition-shadow"
+          onClick={() => {
+            if (status !== "connected") setModalOpen(true)
+          }}
+        >
+          {t.products.join}
         </button>
+        <ConnectModal open={modalOpen} onClose={() => setModalOpen(false)} />
       </div>
     </div>
   )

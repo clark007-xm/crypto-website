@@ -1,80 +1,92 @@
 "use client"
 
-import { ArrowRight, Shield, Eye, Zap } from "lucide-react"
+import { useState } from "react"
+import { ArrowRight, Shield, Zap, Trophy } from "lucide-react"
+import { useT } from "@/lib/i18n/context"
+import { useWallet } from "@/lib/wallet/context"
+import { ConnectModal } from "./connect-modal"
 
-export default function Hero() {
+export function Hero() {
+  const t = useT()
+  const { status } = useWallet()
+  const [modalOpen, setModalOpen] = useState(false)
+
+  const handleJoin = () => {
+    if (status !== "connected") {
+      setModalOpen(true)
+    }
+  }
+
   return (
-    <section className="relative overflow-hidden py-20 md:py-32">
+    <div className="hero min-h-[60vh] sm:min-h-[70vh] relative overflow-hidden">
       {/* Background glow effects */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-accent/5 rounded-full blur-3xl" />
-      </div>
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-[120px] pointer-events-none animate-glow-pulse" />
+      <div className="absolute top-20 right-0 w-[300px] h-[300px] bg-accent/5 rounded-full blur-[100px] pointer-events-none" />
 
-      <div className="max-w-7xl mx-auto px-4 relative z-10">
-        <div className="flex flex-col items-center text-center gap-8">
-          {/* Badge */}
-          <div className="badge badge-outline badge-primary gap-2 px-4 py-3 text-xs font-mono uppercase tracking-wider">
-            <span className="w-2 h-2 bg-primary rounded-full animate-pulse-glow" />
-            {"On-Chain Verified"}
+      <div className="hero-content text-center flex-col gap-6 sm:gap-8 py-10 sm:py-16 px-4">
+        {/* Badge */}
+        <div className="badge badge-outline badge-primary gap-2 py-2.5 px-4 text-xs sm:text-sm">
+          <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />
+          {t.hero.badge}
+        </div>
+
+        {/* Heading */}
+        <h1 className="text-3xl sm:text-4xl md:text-6xl lg:text-7xl font-bold leading-tight text-balance font-display">
+          <span className="text-base-content">{t.hero.headingPrefix}</span>
+          <span className="text-primary">{t.hero.headingHighlight}</span>
+          <br />
+          <span className="text-base-content">{t.hero.headingSuffix}</span>
+        </h1>
+
+        {/* Subtitle */}
+        <p className="text-base-content/60 text-base sm:text-lg md:text-xl max-w-2xl leading-relaxed text-pretty">
+          {t.hero.subtitle}
+        </p>
+
+        {/* CTA Buttons */}
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full sm:w-auto px-4 sm:px-0">
+          <button className="btn btn-primary btn-md sm:btn-lg gap-2 shadow-lg shadow-primary/20 flex-1 sm:flex-none" onClick={handleJoin}>
+            {t.hero.ctaJoin}
+            <ArrowRight className="h-5 w-5" />
+          </button>
+          <button className="btn btn-outline btn-md sm:btn-lg border-base-content/20 text-base-content hover:bg-base-content/10 hover:border-base-content/30 flex-1 sm:flex-none">
+            {t.hero.ctaRules}
+          </button>
+        </div>
+        <ConnectModal open={modalOpen} onClose={() => setModalOpen(false)} />
+
+        {/* Stats */}
+        <div className="stats stats-vertical sm:stats-horizontal bg-base-200/60 shadow border border-base-content/5 mt-4 w-full max-w-lg sm:max-w-none sm:w-auto">
+          <div className="stat px-6 sm:px-8 py-3 sm:py-4">
+            <div className="stat-title text-base-content/40 text-xs sm:text-sm">{t.hero.statPool}</div>
+            <div className="stat-value text-primary font-display text-xl sm:text-2xl md:text-3xl">$2.8M+</div>
           </div>
-
-          {/* Headline */}
-          <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-base-content leading-tight text-balance max-w-4xl">
-            {"1 USDT"}
-            <span className="text-primary">{", "}</span>
-            <br className="hidden sm:block" />
-            {"Win BTC"}
-          </h1>
-
-          <p className="text-base-content/60 text-lg md:text-xl max-w-2xl text-pretty leading-relaxed">
-            {"The first decentralized lucky draw platform on the blockchain. Fully transparent, provably fair, and powered by smart contracts."}
-          </p>
-
-          {/* CTA Buttons */}
-          <div className="flex flex-col sm:flex-row gap-4 items-center">
-            <a href="#draws" className="btn btn-primary btn-lg gap-2 min-w-[200px]">
-              {"Start Drawing"}
-              <ArrowRight className="w-5 h-5" />
-            </a>
-            <a href="#how-it-works" className="btn btn-outline btn-lg border-base-300 text-base-content hover:bg-base-300 hover:border-base-300 min-w-[200px]">
-              {"How it Works"}
-            </a>
+          <div className="stat px-6 sm:px-8 py-3 sm:py-4">
+            <div className="stat-title text-base-content/40 text-xs sm:text-sm">{t.hero.statUsers}</div>
+            <div className="stat-value text-accent font-display text-xl sm:text-2xl md:text-3xl">12,480</div>
           </div>
-
-          {/* Stats Row */}
-          <div className="grid grid-cols-3 gap-8 md:gap-16 mt-8 pt-8 border-t border-base-300 w-full max-w-2xl">
-            <div className="flex flex-col items-center gap-1">
-              <span className="text-2xl md:text-3xl font-bold text-primary font-mono">{"$2.4M"}</span>
-              <span className="text-xs md:text-sm text-base-content/50">{"Total Won"}</span>
-            </div>
-            <div className="flex flex-col items-center gap-1">
-              <span className="text-2xl md:text-3xl font-bold text-accent font-mono">{"12,847"}</span>
-              <span className="text-xs md:text-sm text-base-content/50">{"Total Users"}</span>
-            </div>
-            <div className="flex flex-col items-center gap-1">
-              <span className="text-2xl md:text-3xl font-bold text-info font-mono">{"3,219"}</span>
-              <span className="text-xs md:text-sm text-base-content/50">{"Draws Completed"}</span>
-            </div>
+          <div className="stat px-6 sm:px-8 py-3 sm:py-4">
+            <div className="stat-title text-base-content/40 text-xs sm:text-sm">{t.hero.statRounds}</div>
+            <div className="stat-value text-base-content font-display text-xl sm:text-2xl md:text-3xl">3,126</div>
           </div>
+        </div>
 
-          {/* Trust Badges */}
-          <div className="flex flex-wrap items-center justify-center gap-6 text-base-content/40 text-xs">
-            <div className="flex items-center gap-1.5">
-              <Shield className="w-4 h-4" />
-              <span>{"Audited by CertiK"}</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Eye className="w-4 h-4" />
-              <span>{"Verifiable on-chain"}</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Zap className="w-4 h-4" />
-              <span>{"Instant payouts"}</span>
-            </div>
+        {/* Trust badges */}
+        <div className="flex flex-wrap justify-center gap-6 mt-2">
+          <div className="flex items-center gap-2 text-sm text-base-content/40">
+            <Shield className="h-4 w-4 text-primary" />
+            {t.hero.trustAudit}
+          </div>
+          <div className="flex items-center gap-2 text-sm text-base-content/40">
+            <Zap className="h-4 w-4 text-primary" />
+            {t.hero.trustFast}
+          </div>
+          <div className="flex items-center gap-2 text-sm text-base-content/40">
+            <Trophy className="h-4 w-4 text-accent" />
+            {t.hero.trustOnchain}
           </div>
         </div>
       </div>
-    </section>
+    </div>
   )
 }
