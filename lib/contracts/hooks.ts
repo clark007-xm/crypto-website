@@ -1,12 +1,12 @@
-"use client"
+"use client";
 
-import { useCallback, useEffect, useState } from "react"
-import { Contract, formatUnits, parseUnits } from "ethers"
-import type { ContractTransactionResponse } from "ethers"
-import { useWallet } from "@/lib/wallet/context"
-import { useRpc } from "@/lib/rpc/context"
-import { ERC20_ABI, LOOT_ABI } from "./abis"
-import { getAddresses } from "./addresses"
+import { useCallback, useEffect, useState } from "react";
+import { Contract, formatUnits, parseUnits } from "ethers";
+import type { ContractTransactionResponse } from "ethers";
+import { useWallet } from "@/lib/wallet/context";
+import { useRpc } from "@/lib/rpc/context";
+import { ERC20_ABI, LOOT_ABI } from "./abis";
+import { getAddresses } from "./addresses";
 
 /* ────────────────────────────────────────────
  *  useUsdtContract
@@ -14,12 +14,12 @@ import { getAddresses } from "./addresses"
  *  that uses the RPC readProvider (no signer).
  * ──────────────────────────────────────────── */
 export function useUsdtContract() {
-  const { chainId } = useWallet()
-  const { readProvider } = useRpc()
+  const { chainId } = useWallet();
+  const { readProvider } = useRpc();
 
-  if (!readProvider) return null
-  const { usdt } = getAddresses(chainId)
-  return new Contract(usdt, ERC20_ABI, readProvider)
+  if (!readProvider) return null;
+  const { usdt } = getAddresses(chainId);
+  return new Contract(usdt, ERC20_ABI, readProvider);
 }
 
 /* ────────────────────────────────────────────
@@ -27,13 +27,13 @@ export function useUsdtContract() {
  *  Returns a read-only Loot Contract instance.
  * ──────────────────────────────────────────── */
 export function useLootContract() {
-  const { chainId } = useWallet()
-  const { readProvider } = useRpc()
+  const { chainId } = useWallet();
+  const { readProvider } = useRpc();
 
-  if (!readProvider) return null
-  const { loot } = getAddresses(chainId)
-  if (loot === "0x0000000000000000000000000000000000000000") return null
-  return new Contract(loot, LOOT_ABI, readProvider)
+  if (!readProvider) return null;
+  const { loot } = getAddresses(chainId);
+  if (loot === "0x0000000000000000000000000000000000000000") return null;
+  return new Contract(loot, LOOT_ABI, readProvider);
 }
 
 /* ────────────────────────────────────────────
@@ -42,36 +42,36 @@ export function useLootContract() {
  *  when address / chainId changes.
  * ──────────────────────────────────────────── */
 export function useUsdtBalance() {
-  const { address, chainId, provider } = useWallet()
-  const [balance, setBalance] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const { address, chainId, provider } = useWallet();
+  const [balance, setBalance] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!address || !provider || !chainId) {
-      setBalance(null)
-      return
+      setBalance(null);
+      return;
     }
-    setLoading(true)
+    setLoading(true);
     try {
-      const { usdt } = getAddresses(chainId)
-      const contract = new Contract(usdt, ERC20_ABI, provider)
+      const { usdt } = getAddresses(chainId);
+      const contract = new Contract(usdt, ERC20_ABI, provider);
       const [raw, decimals] = await Promise.all([
         contract.balanceOf(address) as Promise<bigint>,
         contract.decimals() as Promise<bigint>,
-      ])
-      setBalance(formatUnits(raw, Number(decimals)))
+      ]);
+      setBalance(formatUnits(raw, Number(decimals)));
     } catch {
-      setBalance(null)
+      setBalance(null);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [address, chainId, provider])
+  }, [address, chainId, provider]);
 
   useEffect(() => {
-    refresh()
-  }, [refresh])
+    refresh();
+  }, [refresh]);
 
-  return { balance, loading, refresh }
+  return { balance, loading, refresh };
 }
 
 /* ────────────────────────────────────────────
@@ -80,37 +80,37 @@ export function useUsdtBalance() {
  *  for the Loot contract.
  * ──────────────────────────────────────────── */
 export function useUsdtAllowance() {
-  const { address, chainId, provider } = useWallet()
-  const [allowance, setAllowance] = useState<bigint>(0n)
-  const [loading, setLoading] = useState(false)
+  const { address, chainId, provider } = useWallet();
+  const [allowance, setAllowance] = useState<bigint>(0n);
+  const [loading, setLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!address || !provider || !chainId) {
-      setAllowance(0n)
-      return
+      setAllowance(0n);
+      return;
     }
-    setLoading(true)
+    setLoading(true);
     try {
-      const addrs = getAddresses(chainId)
+      const addrs = getAddresses(chainId);
       if (addrs.loot === "0x0000000000000000000000000000000000000000") {
-        setAllowance(0n)
-        return
+        setAllowance(0n);
+        return;
       }
-      const contract = new Contract(addrs.usdt, ERC20_ABI, provider)
-      const raw = (await contract.allowance(address, addrs.loot)) as bigint
-      setAllowance(raw)
+      const contract = new Contract(addrs.usdt, ERC20_ABI, provider);
+      const raw = (await contract.allowance(address, addrs.loot)) as bigint;
+      setAllowance(raw);
     } catch {
-      setAllowance(0n)
+      setAllowance(0n);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [address, chainId, provider])
+  }, [address, chainId, provider]);
 
   useEffect(() => {
-    refresh()
-  }, [refresh])
+    refresh();
+  }, [refresh]);
 
-  return { allowance, loading, refresh }
+  return { allowance, loading, refresh };
 }
 
 /* ────────────────────────────────────────────
@@ -119,34 +119,37 @@ export function useUsdtAllowance() {
  *  USDT -> Loot contract.
  * ──────────────────────────────────────────── */
 export function useApproveUsdt() {
-  const { signer, chainId } = useWallet()
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { signer, chainId } = useWallet();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const approve = useCallback(
     async (amount: string) => {
-      if (!signer || !chainId) return null
-      setLoading(true)
-      setError(null)
+      if (!signer || !chainId) return null;
+      setLoading(true);
+      setError(null);
       try {
-        const addrs = getAddresses(chainId)
-        const contract = new Contract(addrs.usdt, ERC20_ABI, signer)
-        const decimals = (await contract.decimals()) as bigint
-        const parsed = parseUnits(amount, Number(decimals))
-        const tx = (await contract.approve(addrs.loot, parsed)) as ContractTransactionResponse
-        await tx.wait()
-        return tx
+        const addrs = getAddresses(chainId);
+        const contract = new Contract(addrs.usdt, ERC20_ABI, signer);
+        const decimals = (await contract.decimals()) as bigint;
+        const parsed = parseUnits(amount, Number(decimals));
+        const tx = (await contract.approve(
+          addrs.loot,
+          parsed,
+        )) as ContractTransactionResponse;
+        await tx.wait();
+        return tx;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Approve failed")
-        return null
+        setError(err instanceof Error ? err.message : "Approve failed");
+        return null;
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
     },
-    [signer, chainId]
-  )
+    [signer, chainId],
+  );
 
-  return { approve, loading, error }
+  return { approve, loading, error };
 }
 
 /* ────────────────────────────────────────────
@@ -155,32 +158,35 @@ export function useApproveUsdt() {
  *  to enter a round.
  * ──────────────────────────────────────────── */
 export function useParticipate() {
-  const { signer, chainId } = useWallet()
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { signer, chainId } = useWallet();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const participate = useCallback(
     async (roundId: number, ticketCount: number) => {
-      if (!signer || !chainId) return null
-      setLoading(true)
-      setError(null)
+      if (!signer || !chainId) return null;
+      setLoading(true);
+      setError(null);
       try {
-        const addrs = getAddresses(chainId)
-        const contract = new Contract(addrs.loot, LOOT_ABI, signer)
-        const tx = (await contract.participate(roundId, ticketCount)) as ContractTransactionResponse
-        await tx.wait()
-        return tx
+        const addrs = getAddresses(chainId);
+        const contract = new Contract(addrs.loot, LOOT_ABI, signer);
+        const tx = (await contract.participate(
+          roundId,
+          ticketCount,
+        )) as ContractTransactionResponse;
+        await tx.wait();
+        return tx;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Participate failed")
-        return null
+        setError(err instanceof Error ? err.message : "Participate failed");
+        return null;
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
     },
-    [signer, chainId]
-  )
+    [signer, chainId],
+  );
 
-  return { participate, loading, error }
+  return { participate, loading, error };
 }
 
 /* ────────────────────────────────────────────
@@ -192,24 +198,28 @@ export function useLootEvents(
   onDrawn?: (roundId: bigint, winner: string, prize: bigint) => void,
   onParticipated?: (roundId: bigint, user: string, tickets: bigint) => void,
 ) {
-  const loot = useLootContract()
+  const loot = useLootContract();
 
   useEffect(() => {
-    if (!loot) return
+    if (!loot) return;
 
     const handleDrawn = (roundId: bigint, winner: string, prize: bigint) => {
-      onDrawn?.(roundId, winner, prize)
-    }
-    const handleParticipated = (roundId: bigint, user: string, tickets: bigint) => {
-      onParticipated?.(roundId, user, tickets)
-    }
+      onDrawn?.(roundId, winner, prize);
+    };
+    const handleParticipated = (
+      roundId: bigint,
+      user: string,
+      tickets: bigint,
+    ) => {
+      onParticipated?.(roundId, user, tickets);
+    };
 
-    loot.on("RoundDrawn", handleDrawn)
-    loot.on("Participated", handleParticipated)
+    loot.on("RoundDrawn", handleDrawn);
+    loot.on("Participated", handleParticipated);
 
     return () => {
-      loot.off("RoundDrawn", handleDrawn)
-      loot.off("Participated", handleParticipated)
-    }
-  }, [loot, onDrawn, onParticipated])
+      loot.off("RoundDrawn", handleDrawn);
+      loot.off("Participated", handleParticipated);
+    };
+  }, [loot, onDrawn, onParticipated]);
 }
