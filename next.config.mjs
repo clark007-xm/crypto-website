@@ -14,8 +14,8 @@ const nextConfig = {
     // Remove console.log in production (keep console.error and console.warn)
     removeConsole: isProd
       ? {
-          exclude: ["error", "warn"],
-        }
+        exclude: ["error", "warn"],
+      }
       : false,
   },
 
@@ -59,6 +59,8 @@ const nextConfig = {
     }
     return config
   },
+
+  turbopack: {},
 
   /* ── Security headers ── */
   headers: async () => {
