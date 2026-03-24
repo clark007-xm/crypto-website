@@ -8,7 +8,7 @@ import { vi } from "./locales/vi"
 
 const dictionaries: Record<Locale, Dictionary> = { zh, en, vi }
 
-const LOCALE_KEY = "cryptoloot-locale"
+const LOCALE_KEY = "onetap-locale"
 
 const htmlLangMap: Record<Locale, string> = {
   zh: "zh-CN",

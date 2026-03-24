@@ -1,10 +1,10 @@
 "use client"
 
 import { useRef, useState, useEffect, useCallback } from "react"
-import { Activity, RefreshCw, ChevronDown, X } from "lucide-react"
+import { Activity, RefreshCw, ChevronDown, X, Globe } from "lucide-react"
 import { useRpc } from "@/lib/rpc/context"
 import { useT } from "@/lib/i18n/context"
-import { CHAINS } from "@/lib/rpc/nodes"
+import { CHAINS, type ChainId } from "@/lib/rpc/nodes"
 
 /* ── Shared node list panel (reused in both desktop dropdown and mobile modal) ── */
 function NodeListContent({
@@ -14,6 +14,7 @@ function NodeListContent({
 }) {
   const {
     chain,
+    availableChains,
     nodes,
     healths,
     activeNode,
@@ -22,11 +23,43 @@ function NodeListContent({
     selectNode,
     enableAuto,
     refreshAll,
+    setChain,
   } = useRpc()
   const t = useT()
 
   return (
     <>
+      {/* Chain switcher (only shown when multiple chains available, i.e. in dev mode) */}
+      {availableChains.length > 1 && (
+        <>
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <Globe className="h-4 w-4 text-accent" />
+            <span className="font-bold text-sm">{t.rpc.network}</span>
+          </div>
+          <div className="flex gap-2 mb-3">
+            {availableChains.map((c) => (
+              <button
+                key={c}
+                className={`btn btn-sm flex-1 ${
+                  chain === c
+                    ? "btn-primary"
+                    : "btn-ghost border border-base-content/10"
+                }`}
+                onClick={() => {
+                  setChain(c)
+                }}
+              >
+                {CHAINS[c].name.replace(" Testnet", "").replace(" Mainnet", "")}
+                {c === "sepolia" && (
+                  <span className="badge badge-warning badge-xs ml-1">DEV</span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="divider my-1" />
+        </>
+      )}
+
       {/* header */}
       <div className="flex items-center justify-between mb-2 px-1">
         <div className="flex items-center gap-2">
@@ -122,7 +155,7 @@ function NodeListContent({
 }
 
 export function NodeSelector() {
-  const { activeNode, autoMode, healths, ready } = useRpc()
+  const { chain, activeNode, autoMode, healths, ready } = useRpc()
   const t = useT()
 
   const [desktopOpen, setDesktopOpen] = useState(false)
@@ -150,11 +183,12 @@ export function NodeSelector() {
           ? "bg-warning"
           : "bg-error"
 
+  const chainLabel = chain === "sepolia" ? "[TEST] " : ""
   const statusLabel = !ready
     ? t.rpc.checking
     : autoMode
-      ? `${t.rpc.auto} - ${activeNode.name}`
-      : activeNode.name
+      ? `${chainLabel}${t.rpc.auto} - ${activeNode.name}`
+      : `${chainLabel}${activeNode.name}`
 
   const latencyLabel =
     ready && activeHealth && activeHealth.latency > 0
@@ -189,7 +223,7 @@ export function NodeSelector() {
               !ready ? "animate-pulse" : ""
             }`}
           />
-          <span className="hidden sm:inline max-w-[120px] md:max-w-[140px] truncate">
+          <span className="hidden sm:inline max-w-[120px] md:max-w-[160px] truncate">
             {statusLabel}
           </span>
           {latencyLabel && (
@@ -202,7 +236,7 @@ export function NodeSelector() {
 
         {/* Desktop: absolute dropdown */}
         {desktopOpen && (
-          <div className="hidden sm:block absolute right-0 top-full mt-2 z-[60] w-72 bg-base-300 border border-base-content/10 rounded-box shadow-xl p-3">
+          <div className="hidden sm:block absolute right-0 top-full mt-2 z-[60] w-80 bg-base-300 border border-base-content/10 rounded-box shadow-xl p-3">
             <NodeListContent onDone={() => setDesktopOpen(false)} />
           </div>
         )}
@@ -215,7 +249,7 @@ export function NodeSelector() {
       >
         <div className="modal-box bg-base-300 border-t border-base-content/10 rounded-t-2xl pb-8 max-h-[80vh]">
           <div className="flex items-center justify-between mb-3">
-            <span className="font-bold text-base">RPC Node</span>
+            <span className="font-bold text-base">{t.rpc.network}</span>
             <button
               className="btn btn-ghost btn-sm btn-circle"
               onClick={closeMobileModal}

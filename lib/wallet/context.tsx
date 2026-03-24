@@ -38,6 +38,8 @@ export interface WalletContextValue {
   signer: JsonRpcSigner | null
   connect: () => Promise<void>
   disconnect: () => void
+  /** Request wallet to switch to a specific chain */
+  switchChain: (chainId: number) => Promise<boolean>
 }
 
 const WalletContext = createContext<WalletContextValue | null>(null)
@@ -176,6 +178,39 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("wallet_connected")
   }, [])
 
+  /* ── switch chain ── */
+  const switchChain = useCallback(async (targetChainId: number): Promise<boolean> => {
+    if (!window.ethereum) return false
+    const hexChainId = `0x${targetChainId.toString(16)}`
+    try {
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: hexChainId }],
+      })
+      return true
+    } catch (err: unknown) {
+      // 4902 = chain not added to wallet, try adding it
+      if ((err as { code?: number })?.code === 4902 && targetChainId === 11155111) {
+        try {
+          await window.ethereum.request({
+            method: "wallet_addEthereumChain",
+            params: [{
+              chainId: hexChainId,
+              chainName: "Sepolia Testnet",
+              nativeCurrency: { name: "SepoliaETH", symbol: "ETH", decimals: 18 },
+              rpcUrls: ["https://ethereum-sepolia-rpc.publicnode.com"],
+              blockExplorerUrls: ["https://sepolia.etherscan.io"],
+            }],
+          })
+          return true
+        } catch {
+          return false
+        }
+      }
+      return false
+    }
+  }, [])
+
   const shortAddress = address ? shortenAddress(address) : null
 
   return (
@@ -191,6 +226,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         signer,
         connect,
         disconnect,
+        switchChain,
       }}
     >
       {children}

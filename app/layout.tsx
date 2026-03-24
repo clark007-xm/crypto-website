@@ -11,8 +11,8 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-space-grotesk" })
 
 export const metadata: Metadata = {
-  title: "CryptoLoot - 1U\u593A\u5B9D",
-  description: "\u4EC5\u9700 1 USDT\uFF0C\u8D62\u53D6 BTC\u3001ETH \u7B49\u52A0\u5BC6\u8D44\u4EA7\u5927\u5956",
+  title: "One tap - 一触即发",
+  description: "低门槛参与，赢取加密资产大奖",
 }
 
 export const viewport: Viewport = {
@@ -25,7 +25,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="zh-CN" data-theme="cryptodark" suppressHydrationWarning>
+    <html lang="zh-CN" data-theme="cryptodark" data-scroll-behavior="smooth" suppressHydrationWarning>
       <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}>
         <I18nProvider>
           <RpcProvider>

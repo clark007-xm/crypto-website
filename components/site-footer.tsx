@@ -12,8 +12,8 @@ export function SiteFooter() {
         <a className="flex items-center gap-2 text-xl font-bold text-base-content mb-2" href="#">
           <Zap className="h-6 w-6 text-primary" />
           <span className="font-display">
-            <span className="text-primary">Crypto</span>
-            <span className="text-base-content">Loot</span>
+            <span className="text-primary">One</span>
+            <span className="text-base-content ml-1">tap</span>
           </span>
         </a>
         <p className="text-sm leading-relaxed max-w-xs">

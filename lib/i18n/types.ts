@@ -47,6 +47,18 @@ export interface Dictionary {
     join: string
     loadMore: string
     usdtRedPacket: string
+    refresh: string
+    loading: string
+    noSessions: string
+    noSessionsSub: string
+    usdtPool: string
+    ethPool: string
+    tokenPool: string
+    ticket: string
+    settled: string
+    revealing: string
+    buying: string
+    viewResult: string
   }
   winners: {
     title: string
@@ -93,6 +105,13 @@ export interface Dictionary {
     installMetaMask: string
     footerTip: string
     usdtBalance: string
+    ethBalance: string
+    partnerDeposit: string
+    partner: string
+    createTable: string
+    wrongNetwork: string
+    switchToSepolia: string
+    switching: string
   }
   contract: {
     approving: string
@@ -108,6 +127,7 @@ export interface Dictionary {
     noContract: string
   }
   rpc: {
+    network: string
     auto: string
     autoBest: string
     current: string
@@ -115,6 +135,105 @@ export interface Dictionary {
     offline: string
     refresh: string
     footerTip: string
+  }
+  create: {
+    title: string
+    subtitle: string
+    ticketPrice: string
+    ticketPriceHint: string
+    totalTickets: string
+    totalTicketsHint: string
+    commitDuration: string
+    commitDurationHint: string
+    commitDurationError: string
+    revealDuration: string
+    revealDurationHint: string
+    revealDurationError: string
+    maxDays: string
+    partnerShare: string
+    partnerShareHint: string
+    platformFee: string
+    platformFeeHint: string
+    secretKey: string
+    secretKeyHint: string
+    secretKeyPlaceholder: string
+    commitment: string
+    secretWarning: string
+    preview: string
+    totalPool: string
+    yourShare: string
+    submit: string
+    creating: string
+    success: string
+    failed: string
+    minutes: string
+    hours: string
+    days: string
+    mins: string
+    back: string
+    notPartner: string
+    connectFirst: string
+    depositRequired: string
+    depositBalance: string
+    depositNeeded: string
+    depositAmount: string
+    depositBtn: string
+    depositing: string
+    depositSuccess: string
+    depositFailed: string
+  }
+  session: {
+    back: string
+    notFound: string
+    backToHome: string
+    active: string
+    buyTickets: string
+    ticketPrice: string
+    quantity: string
+    maxTickets: string
+    totalTicketsLabel: string
+    useBalance: string
+    useBalanceHint: string
+    totalCost: string
+    secretKey: string
+    secretKeyHint: string
+    generateSecret: string
+    commitmentHash: string
+    secretWarning: string
+    buyNow: string
+    connectToBuy: string
+    processing: string
+    buySuccess: string
+    commitEnded: string
+    waitingReveal: string
+    sessionSettled: string
+    // Creator management
+    creatorPanel: string
+    unsoldSettlement: string
+    unsoldSettlementDesc: string
+    ticketsSold: string
+    unsoldCount: string
+    slashRatio: string
+    finalizeUnsold: string
+    finalizing: string
+    finalizeSuccess: string
+    finalizeFailed: string
+    notCreator: string
+    allTicketsSold: string
+    commitNotEnded: string
+    // Player claim
+    claimRefundPanel: string
+    claimRefundDesc: string
+    yourTickets: string
+    principalAmount: string
+    compensationAmount: string
+    totalRefund: string
+    claimNow: string
+    claiming: string
+    claimSuccess: string
+    claimFailed: string
+    noTickets: string
+    alreadyClaimed: string
   }
   footer: {
     desc: string

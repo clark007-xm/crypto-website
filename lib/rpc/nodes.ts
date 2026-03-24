@@ -1,4 +1,6 @@
-export type ChainId = "eth-mainnet"
+"use client"
+
+export type ChainId = "eth-mainnet" | "sepolia"
 
 export interface RpcNode {
   id: string
@@ -17,14 +19,26 @@ export interface NodeHealth {
   lastChecked: number      // Date.now()
 }
 
-export const CHAINS: Record<ChainId, { name: string; hexId: string }> = {
-  "eth-mainnet": { name: "Ethereum Mainnet", hexId: "0x1" },
+export const CHAINS: Record<ChainId, { name: string; hexId: string; numericId: number }> = {
+  "eth-mainnet": { name: "Ethereum Mainnet", hexId: "0x1", numericId: 1 },
+  "sepolia": { name: "Sepolia Testnet", hexId: "0xaa36a7", numericId: 11155111 },
 }
 
-export const DEFAULT_CHAIN: ChainId = "eth-mainnet"
+/** Default chain based on environment */
+export const DEFAULT_CHAIN: ChainId = 
+  process.env.NODE_ENV === "development" ? "sepolia" : "eth-mainnet"
 
-/** Public Ethereum RPC endpoints – sorted roughly by reliability */
-export const ETH_NODES: RpcNode[] = [
+/** Check if a chain should be visible in the current environment */
+export function isChainAvailable(chainId: ChainId): boolean {
+  if (chainId === "sepolia") {
+    // Sepolia only available in development
+    return process.env.NODE_ENV === "development"
+  }
+  return true
+}
+
+/** Public Ethereum Mainnet RPC endpoints */
+export const ETH_MAINNET_NODES: RpcNode[] = [
   {
     id: "cloudflare",
     name: "Cloudflare",
@@ -69,11 +83,54 @@ export const ETH_NODES: RpcNode[] = [
   },
 ]
 
+/** Sepolia Testnet RPC endpoints (only available in development) */
+export const SEPOLIA_NODES: RpcNode[] = [
+  {
+    id: "sepolia-publicnode",
+    name: "PublicNode",
+    url: "https://ethereum-sepolia-rpc.publicnode.com",
+    chainId: "sepolia",
+    isPublic: true,
+  },
+  {
+    id: "sepolia-drpc",
+    name: "dRPC",
+    url: "https://sepolia.drpc.org",
+    chainId: "sepolia",
+    isPublic: true,
+  },
+  {
+    id: "sepolia-gateway",
+    name: "Gateway.fm",
+    url: "https://rpc.sepolia.org",
+    chainId: "sepolia",
+    isPublic: true,
+  },
+  {
+    id: "sepolia-tenderly",
+    name: "Tenderly",
+    url: "https://sepolia.gateway.tenderly.co",
+    chainId: "sepolia",
+    isPublic: true,
+  },
+]
+
 export function getNodesByChain(chain: ChainId): RpcNode[] {
   switch (chain) {
     case "eth-mainnet":
-      return ETH_NODES
+      return ETH_MAINNET_NODES
+    case "sepolia":
+      return SEPOLIA_NODES
     default:
-      return ETH_NODES
+      return ETH_MAINNET_NODES
   }
+}
+
+/** Get all available chains based on environment */
+export function getAvailableChains(): ChainId[] {
+  const chains: ChainId[] = ["eth-mainnet"]
+  if (process.env.NODE_ENV === "development") {
+    chains.push("sepolia")
+  }
+  return chains
 }

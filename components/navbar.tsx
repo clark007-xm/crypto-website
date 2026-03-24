@@ -53,10 +53,8 @@ export function Navbar() {
         </div>
         <a className="btn btn-ghost text-lg sm:text-xl gap-1 sm:gap-2 font-display font-bold px-1 sm:px-3" href="#top">
           <Zap className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
-          <span className="text-primary">C</span>
-          <span className="text-base-content hidden sm:inline">rypto</span>
-          <span className="text-primary sm:text-base-content">L</span>
-          <span className="text-base-content hidden sm:inline">oot</span>
+          <span className="text-primary">One</span>
+          <span className="text-base-content ml-1">tap</span>
         </a>
       </div>
 

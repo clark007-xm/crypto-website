@@ -10,40 +10,49 @@ import React, {
 } from "react"
 import { JsonRpcProvider } from "ethers"
 import type { ChainId, NodeHealth, RpcNode } from "./nodes"
-import { DEFAULT_CHAIN, getNodesByChain } from "./nodes"
+import { CHAINS, DEFAULT_CHAIN, getAvailableChains, getNodesByChain } from "./nodes"
 
 /* ── constants ── */
 const HEALTH_INTERVAL = 30_000
 const PING_TIMEOUT = 5_000
 const SLOW_THRESHOLD = 800
 
-/* ── ping using ethers JsonRpcProvider ── */
+/* ── ping using fetch (lightweight, no ethers overhead) ── */
 async function pingNode(node: RpcNode): Promise<NodeHealth> {
   const start = performance.now()
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), PING_TIMEOUT)
+
   try {
-    const provider = new JsonRpcProvider(node.url, undefined, {
-      staticNetwork: true,
+    const res = await fetch(node.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "eth_blockNumber",
+        params: [],
+        id: 1,
+      }),
+      signal: controller.signal,
     })
+    clearTimeout(timeoutId)
 
-    // set a timeout via AbortController-like pattern
-    const blockPromise = provider.getBlockNumber()
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("timeout")), PING_TIMEOUT)
-    )
+    if (!res.ok) throw new Error("HTTP error")
+    const json = await res.json()
+    if (json.error) throw new Error(json.error.message)
 
-    const blockNumber = await Promise.race([blockPromise, timeoutPromise])
     const latency = Math.round(performance.now() - start)
-
-    provider.destroy()
+    const blockNumber = parseInt(json.result, 16)
 
     return {
       id: node.id,
       latency,
-      blockNumber: blockNumber as number,
+      blockNumber,
       status: latency > SLOW_THRESHOLD ? "slow" : "online",
       lastChecked: Date.now(),
     }
   } catch {
+    clearTimeout(timeoutId)
     return {
       id: node.id,
       latency: -1,
@@ -74,6 +83,7 @@ function pickBestNode(
 /* ── context types ── */
 interface RpcContextValue {
   chain: ChainId
+  availableChains: ChainId[]
   nodes: RpcNode[]
   healths: Map<string, NodeHealth>
   activeNode: RpcNode
@@ -81,6 +91,7 @@ interface RpcContextValue {
   ready: boolean
   /** An ethers JsonRpcProvider pointing at the currently active RPC node */
   readProvider: JsonRpcProvider | null
+  setChain: (chain: ChainId) => void
   selectNode: (id: string) => void
   enableAuto: () => void
   refreshAll: () => void
@@ -90,22 +101,28 @@ const RpcContext = createContext<RpcContextValue | null>(null)
 
 /* ── provider component ── */
 export function RpcProvider({ children }: { children: React.ReactNode }) {
-  const chain: ChainId = DEFAULT_CHAIN
-  const nodes = getNodesByChain(chain)
-
+  const [chain, setChainState] = useState<ChainId>(DEFAULT_CHAIN)
+  const [nodes, setNodes] = useState<RpcNode[]>(() => getNodesByChain(DEFAULT_CHAIN))
   const [healths, setHealths] = useState<Map<string, NodeHealth>>(new Map())
-  const [activeNode, setActiveNode] = useState<RpcNode>(nodes[0])
+  const [activeNode, setActiveNode] = useState<RpcNode>(() => getNodesByChain(DEFAULT_CHAIN)[0])
   const [autoMode, setAutoMode] = useState(true)
   const [ready, setReady] = useState(false)
   const [readProvider, setReadProvider] = useState<JsonRpcProvider | null>(null)
 
+  const availableChains = getAvailableChains()
+
   const autoRef = useRef(autoMode)
   autoRef.current = autoMode
+  const activeNodeRef = useRef(activeNode)
+  activeNodeRef.current = activeNode
+  const nodesRef = useRef(nodes)
+  nodesRef.current = nodes
 
   /* ── update read provider when active node changes ── */
   useEffect(() => {
     const p = new JsonRpcProvider(activeNode.url, undefined, {
       staticNetwork: true,
+      batchMaxCount: 1, // Disable batching - DRPC free tier limits to 3 batch requests
     })
     setReadProvider(p)
     return () => {
@@ -113,32 +130,62 @@ export function RpcProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeNode])
 
-  /* ── benchmark all ── */
+  /* ── benchmark all (stable ref) ── */
   const benchmarkAll = useCallback(async () => {
-    const results = await Promise.all(nodes.map(pingNode))
+    const currentNodes = nodesRef.current
+    const results = await Promise.all(currentNodes.map(pingNode))
     const next = new Map<string, NodeHealth>()
     for (const r of results) next.set(r.id, r)
     setHealths(next)
 
     if (autoRef.current) {
-      const best = pickBestNode(nodes, next)
+      const best = pickBestNode(currentNodes, next)
       setActiveNode(best)
     } else {
-      const currentHealth = next.get(activeNode.id)
+      const currentHealth = next.get(activeNodeRef.current.id)
       if (!currentHealth || currentHealth.status === "offline") {
-        const best = pickBestNode(nodes, next)
+        const best = pickBestNode(currentNodes, next)
         setActiveNode(best)
         setAutoMode(true)
       }
     }
     setReady(true)
-  }, [nodes, activeNode.id])
+  }, [])
+
+  /* ── run benchmark on mount and when chain changes ── */
+  const chainIdRef = useRef(chain)
+  useEffect(() => {
+    // Only re-run if chain actually changed (handled by setChain calling benchmarkAll)
+    if (chainIdRef.current !== chain) {
+      chainIdRef.current = chain
+      benchmarkAll()
+    }
+  }, [chain, benchmarkAll])
 
   useEffect(() => {
     benchmarkAll()
     const interval = setInterval(benchmarkAll, HEALTH_INTERVAL)
     return () => clearInterval(interval)
   }, [benchmarkAll])
+
+  /* ── chain switching ── */
+  const chainRef = useRef(chain)
+  chainRef.current = chain
+  const benchmarkAllRef = useRef(benchmarkAll)
+  benchmarkAllRef.current = benchmarkAll
+
+  const setChain = useCallback((newChain: ChainId) => {
+    if (newChain === chainRef.current) return
+    setChainState(newChain)
+    const newNodes = getNodesByChain(newChain)
+    setNodes(newNodes)
+    nodesRef.current = newNodes
+    setActiveNode(newNodes[0])
+    activeNodeRef.current = newNodes[0]
+    setHealths(new Map())
+    setReady(false)
+    setAutoMode(true)
+  }, [])
 
   /* ── actions ── */
   const selectNode = useCallback(
@@ -162,12 +209,14 @@ export function RpcProvider({ children }: { children: React.ReactNode }) {
     <RpcContext.Provider
       value={{
         chain,
+        availableChains,
         nodes,
         healths,
         activeNode,
         autoMode,
         ready,
         readProvider,
+        setChain,
         selectNode,
         enableAuto,
         refreshAll: benchmarkAll,

@@ -1,10 +1,12 @@
 "use client"
 
 import { useState } from "react"
-import { Wallet, LogOut, Copy, ExternalLink, Check, RefreshCw } from "lucide-react"
+import { Wallet, LogOut, Copy, ExternalLink, Check, RefreshCw, PlusCircle, AlertTriangle } from "lucide-react"
+import Link from "next/link"
 import { useWallet } from "@/lib/wallet/context"
 import { useT } from "@/lib/i18n/context"
-import { useUsdtBalance } from "@/lib/contracts/hooks"
+import { useIsPartner, usePartnerDeposit } from "@/lib/contracts/hooks"
+import { formatEther } from "ethers"
 import { ConnectModal } from "./connect-modal"
 
 /* chain name map */
@@ -21,13 +23,25 @@ const CHAIN_NAMES: Record<number, string> = {
 }
 
 export function WalletButton() {
-  const { status, shortAddress, address, balance, chainId, disconnect } = useWallet()
+  const { status, shortAddress, address, balance, chainId, disconnect, switchChain } = useWallet()
   const t = useT()
   const [modalOpen, setModalOpen] = useState(false)
   const [copied, setCopied] = useState(false)
-  const { balance: usdtBalance, loading: usdtLoading, refresh: refreshUsdt } = useUsdtBalance()
+  const [switching, setSwitching] = useState(false)
+  const { isPartner, loading: partnerLoading, checked: partnerChecked } = useIsPartner()
+  const { balance: depositBalance, loading: depositLoading, refresh: refreshDeposit } = usePartnerDeposit()
 
   const chainName = chainId ? CHAIN_NAMES[chainId] ?? `Chain ${chainId}` : ""
+  
+  // In development, check if user is on wrong network (should be Sepolia)
+  const isDev = process.env.NODE_ENV === "development"
+  const isWrongNetwork = isDev && chainId !== null && chainId !== 11155111
+
+  const handleSwitchToSepolia = async () => {
+    setSwitching(true)
+    await switchChain(11155111)
+    setSwitching(false)
+  }
 
   const handleCopy = async () => {
     if (!address) return
@@ -36,10 +50,10 @@ export function WalletButton() {
     setTimeout(() => setCopied(false), 1500)
   }
 
-  /* Format USDT balance for display */
-  const formattedUsdt = usdtBalance
-    ? Number(usdtBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : "0.00"
+  /* Format deposit balance for display (ETH) */
+  const formattedDeposit = depositBalance
+    ? Number(formatEther(depositBalance)).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+    : "0.0000"
 
   /* ---- Disconnected state ---- */
   if (status !== "connected") {
@@ -82,7 +96,14 @@ export function WalletButton() {
         {/* Wallet header */}
         <div className="p-4 bg-base-300/50 border-b border-base-content/5">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-base-content/40 font-medium">{t.wallet.connected}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-base-content/40 font-medium">{t.wallet.connected}</span>
+              {partnerLoading ? (
+                <span className="loading loading-spinner loading-xs text-primary" />
+              ) : partnerChecked && isPartner ? (
+                <span className="badge badge-primary badge-xs">{t.wallet.partner}</span>
+              ) : null}
+            </div>
             <span className="badge badge-ghost badge-xs gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-success" />
               {chainName}
@@ -103,26 +124,67 @@ export function WalletButton() {
           </div>
         </div>
 
-        {/* Balance section */}
-        <div className="p-3 border-b border-base-content/5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-base-content/40">{t.wallet.usdtBalance}</span>
+        {/* Wrong network warning (dev only) */}
+        {isWrongNetwork && (
+          <div className="p-3 bg-warning/10 border-b border-warning/20">
+            <div className="flex items-center gap-2 text-warning mb-2">
+              <AlertTriangle className="h-4 w-4" />
+              <span className="text-xs font-semibold">{t.wallet.wrongNetwork}</span>
+            </div>
             <button
-              className="btn btn-ghost btn-xs btn-circle"
-              onClick={refreshUsdt}
-              disabled={usdtLoading}
+              className={`btn btn-warning btn-xs btn-block ${switching ? "loading" : ""}`}
+              onClick={handleSwitchToSepolia}
+              disabled={switching}
             >
-              <RefreshCw className={`h-3 w-3 ${usdtLoading ? "animate-spin" : ""}`} />
+              {switching ? t.wallet.switching : t.wallet.switchToSepolia}
             </button>
           </div>
+        )}
+
+        {/* Balance section */}
+        <div className="p-3 border-b border-base-content/5">
+          {/* ETH Balance */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-base-content/40">{t.wallet.ethBalance}</span>
+          </div>
           <p className="text-lg font-bold text-primary font-display mt-0.5">
-            {usdtLoading ? "..." : formattedUsdt}
-            <span className="text-xs text-base-content/40 ml-1 font-normal">USDT</span>
+            {balance ?? "0"}
+            <span className="text-xs text-base-content/40 ml-1 font-normal">ETH</span>
           </p>
+          
+          {/* Partner Deposit (only for partners) */}
+          {partnerChecked && isPartner && (
+            <div className="mt-3 pt-3 border-t border-base-content/5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-base-content/40">{t.wallet.partnerDeposit}</span>
+                <button
+                  className="btn btn-ghost btn-xs btn-circle"
+                  onClick={refreshDeposit}
+                  disabled={depositLoading}
+                >
+                  <RefreshCw className={`h-3 w-3 ${depositLoading ? "animate-spin" : ""}`} />
+                </button>
+              </div>
+              <p className="text-sm font-semibold text-secondary font-display mt-0.5">
+                {depositLoading ? "..." : formattedDeposit}
+                <span className="text-xs text-base-content/40 ml-1 font-normal">ETH</span>
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Actions */}
         <div className="p-2">
+          {/* Partner-only: Create Table */}
+          {partnerChecked && isPartner && (
+            <Link
+              href="/create"
+              className="btn btn-primary btn-sm justify-start w-full gap-3 font-normal mb-1"
+            >
+              <PlusCircle className="h-4 w-4" />
+              {t.wallet.createTable}
+            </Link>
+          )}
           <button
             className="btn btn-ghost btn-sm justify-start w-full gap-3 font-normal"
             onClick={handleCopy}

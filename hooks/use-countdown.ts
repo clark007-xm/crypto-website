@@ -1,34 +1,40 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 
-const ZERO = { days: 0, hours: 0, minutes: 0, seconds: 0 }
+const ZERO = { days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: true }
 
-export function useCountdown(targetDate: Date) {
+/**
+ * Countdown hook - accepts timestamp in milliseconds
+ * Caller should memoize the timestamp to prevent re-renders
+ */
+export function useCountdown(targetTimeMs: number) {
   const [timeLeft, setTimeLeft] = useState(ZERO)
   const [mounted, setMounted] = useState(false)
+  const targetRef = useRef(targetTimeMs)
+  targetRef.current = targetTimeMs
 
   useEffect(() => {
     setMounted(true)
-    setTimeLeft(getTimeLeft(targetDate))
+    setTimeLeft(getTimeLeft(targetRef.current))
 
     const timer = setInterval(() => {
-      setTimeLeft(getTimeLeft(targetDate))
+      setTimeLeft(getTimeLeft(targetRef.current))
     }, 1000)
 
     return () => clearInterval(timer)
-  }, [targetDate])
+  }, [])
 
   if (!mounted) return ZERO
   return timeLeft
 }
 
-function getTimeLeft(targetDate: Date) {
-  const now = new Date().getTime()
-  const distance = targetDate.getTime() - now
+function getTimeLeft(targetTime: number) {
+  const now = Date.now()
+  const distance = targetTime - now
 
   if (distance <= 0) {
-    return { days: 0, hours: 0, minutes: 0, seconds: 0 }
+    return { days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: true }
   }
 
   return {
@@ -36,5 +42,6 @@ function getTimeLeft(targetDate: Date) {
     hours: Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
     minutes: Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60)),
     seconds: Math.floor((distance % (1000 * 60)) / 1000),
+    isExpired: false,
   }
 }
