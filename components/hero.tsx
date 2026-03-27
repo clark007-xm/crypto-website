@@ -1,10 +1,14 @@
 "use client"
 
 import { useState } from "react"
+import dynamic from "next/dynamic"
 import { ArrowRight, Shield, Zap, Trophy } from "lucide-react"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
-import { ConnectModal } from "./connect-modal"
+
+const ConnectModal = dynamic(
+  () => import("./connect-modal").then((mod) => mod.ConnectModal)
+)
 
 export function Hero() {
   const t = useT()
@@ -53,7 +57,9 @@ export function Hero() {
             {t.hero.ctaRules}
           </button>
         </div>
-        <ConnectModal open={modalOpen} onClose={() => setModalOpen(false)} />
+        {modalOpen && (
+          <ConnectModal open={modalOpen} onClose={() => setModalOpen(false)} />
+        )}
 
         {/* Stats */}
         <div className="stats stats-vertical sm:stats-horizontal bg-base-200/60 shadow border border-base-content/5 mt-4 w-full max-w-lg sm:max-w-none sm:w-auto">

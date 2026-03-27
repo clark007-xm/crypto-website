@@ -1,13 +1,17 @@
 "use client"
 
 import { useState, useMemo, useEffect } from "react"
+import dynamic from "next/dynamic"
 import { X, Eye, EyeOff, Copy, RefreshCw, Ticket, Loader2, Check } from "lucide-react"
 import { formatEther, hexlify, randomBytes, keccak256, toUtf8Bytes, ZeroAddress } from "ethers"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import { useBuyTickets } from "@/lib/contracts/hooks"
-import { ConnectModal } from "./connect-modal"
 import type { SessionConfigFromEvent } from "@/lib/contracts/hooks"
+
+const ConnectModal = dynamic(
+  () => import("./connect-modal").then((mod) => mod.ConnectModal)
+)
 
 interface BuyModalProps {
   isOpen: boolean
@@ -113,10 +117,12 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
   
   return (
     <>
-      <ConnectModal 
-        open={connectModalOpen} 
-        onClose={() => setConnectModalOpen(false)} 
-      />
+      {connectModalOpen && (
+        <ConnectModal 
+          open={connectModalOpen} 
+          onClose={() => setConnectModalOpen(false)} 
+        />
+      )}
       
       {/* Backdrop */}
       <div 

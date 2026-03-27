@@ -1,15 +1,19 @@
 "use client"
 
 import { useState, useMemo } from "react"
+import dynamic from "next/dynamic"
 import { Clock, Users, Flame, ExternalLink } from "lucide-react"
 import { useCountdown } from "@/hooks/use-countdown"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import { type SessionConfigFromEvent } from "@/lib/contracts/hooks"
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
-import { ConnectModal } from "./connect-modal"
 import { formatEther, ZeroAddress } from "ethers"
 import Link from "next/link"
+
+const ConnectModal = dynamic(
+  () => import("./connect-modal").then((mod) => mod.ConnectModal)
+)
 
 interface SessionCardProps {
   session: SessionConfigFromEvent
@@ -29,7 +33,7 @@ export function SessionCard({ session }: SessionCardProps) {
       ? Number(session.commitDeadline) * 1000
       : Date.now() + 60000
   }, [session.commitDeadline])
-  const { days, hours, minutes, seconds, isExpired } = useCountdown(endTimeMs)
+  const { days, hours, minutes, seconds } = useCountdown(endTimeMs)
 
   // Determine if using ETH or ERC20 token
   const isEth = session.paymentToken === ZeroAddress
@@ -192,7 +196,9 @@ export function SessionCard({ session }: SessionCardProps) {
         >
           {isSettled ? t.products.viewResult : t.products.join}
         </Link>
-        <ConnectModal open={modalOpen} onClose={() => setModalOpen(false)} />
+        {modalOpen && (
+          <ConnectModal open={modalOpen} onClose={() => setModalOpen(false)} />
+        )}
       </div>
     </div>
   )

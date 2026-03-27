@@ -1,9 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { Zap, Globe } from "lucide-react"
+import { Globe } from "lucide-react"
 import { useT, useLocale } from "@/lib/i18n/context"
 import type { Locale } from "@/lib/i18n/types"
+import { BrandLogo } from "./brand-logo"
 import { NodeSelector } from "./node-selector"
 import { WalletButton } from "./wallet-button"
 
@@ -51,11 +52,14 @@ export function Navbar() {
             </ul>
           )}
         </div>
-        <a className="btn btn-ghost text-lg sm:text-xl gap-1 sm:gap-2 font-display font-bold px-1 sm:px-3" href="#top">
-          <Zap className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
-          <span className="text-primary">One</span>
-          <span className="text-base-content ml-1">tap</span>
-        </a>
+        <BrandLogo
+          href="#top"
+          priority
+          showName
+          className="btn btn-ghost gap-2 px-1 sm:px-3 hover:bg-transparent"
+          imageClassName="h-7 w-auto sm:h-9"
+          nameClassName="hidden lg:inline text-base font-display font-bold tracking-[0.14em] text-base-content whitespace-nowrap"
+        />
       </div>
 
       {/* Center: desktop nav */}

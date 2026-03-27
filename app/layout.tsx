@@ -13,6 +13,10 @@ const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-space
 export const metadata: Metadata = {
   title: "One tap - 一触即发",
   description: "低门槛参与，赢取加密资产大奖",
+  icons: {
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+  },
 }
 
 export const viewport: Viewport = {

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import dynamic from "next/dynamic"
 import { Wallet, LogOut, Copy, ExternalLink, Check, RefreshCw, PlusCircle, AlertTriangle } from "lucide-react"
 import Link from "next/link"
 import { useWallet } from "@/lib/wallet/context"
@@ -10,7 +11,10 @@ import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
 import { useRpc } from "@/lib/rpc/context"
 import { CHAINS, getChainByNumericId } from "@/lib/rpc/nodes"
 import { formatEther } from "ethers"
-import { ConnectModal } from "./connect-modal"
+
+const ConnectModal = dynamic(
+  () => import("./connect-modal").then((mod) => mod.ConnectModal)
+)
 
 export function WalletButton() {
   const { status, shortAddress, address, balance, chainId, disconnect, switchChain } = useWallet()
@@ -62,7 +66,9 @@ export function WalletButton() {
             {status === "connecting" ? "..." : t.nav.connect}
           </span>
         </button>
-        <ConnectModal open={modalOpen} onClose={() => setModalOpen(false)} />
+        {modalOpen && (
+          <ConnectModal open={modalOpen} onClose={() => setModalOpen(false)} />
+        )}
       </>
     )
   }

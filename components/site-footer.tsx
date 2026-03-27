@@ -1,7 +1,7 @@
 "use client"
 
-import { Zap } from "lucide-react"
 import { useT } from "@/lib/i18n/context"
+import { BrandLogo } from "./brand-logo"
 
 export function SiteFooter() {
   const t = useT()
@@ -9,13 +9,13 @@ export function SiteFooter() {
   return (
     <footer className="footer bg-base-300/50 text-base-content/40 p-6 sm:p-10 border-t border-base-content/5 max-w-7xl mx-auto grid-cols-2 sm:grid-cols-none">
       <aside>
-        <a className="flex items-center gap-2 text-xl font-bold text-base-content mb-2" href="#">
-          <Zap className="h-6 w-6 text-primary" />
-          <span className="font-display">
-            <span className="text-primary">One</span>
-            <span className="text-base-content ml-1">tap</span>
-          </span>
-        </a>
+        <BrandLogo
+          href="#top"
+          showName
+          className="inline-flex items-center gap-3 mb-3"
+          imageClassName="h-8 w-auto sm:h-10"
+          nameClassName="text-lg sm:text-xl font-display font-bold tracking-[0.16em] text-base-content whitespace-nowrap"
+        />
         <p className="text-sm leading-relaxed max-w-xs">
           {t.footer.desc}
           <br />

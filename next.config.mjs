@@ -2,64 +2,14 @@
 const isProd = process.env.NODE_ENV === "production"
 
 const nextConfig = {
-  images: {
-    unoptimized: true,
-  },
-
-  /* ── Production optimizations ── */
   compiler: {
-    // Remove console.log in production (keep console.error and console.warn)
     removeConsole: isProd
       ? {
-        exclude: ["error", "warn"],
-      }
+          exclude: ["error", "warn"],
+        }
       : false,
   },
 
-  /* ── Webpack customization for production ── */
-  webpack: (config, { dev }) => {
-    if (!dev) {
-      // Enable aggressive minification and obfuscation
-      config.optimization = {
-        ...config.optimization,
-        minimize: true,
-        minimizer: config.optimization.minimizer?.map((minimizer) => {
-          // Configure TerserPlugin for obfuscation
-          if (minimizer.constructor.name === "TerserPlugin") {
-            return new minimizer.constructor({
-              ...minimizer.options,
-              terserOptions: {
-                ...minimizer.options?.terserOptions,
-                compress: {
-                  ...minimizer.options?.terserOptions?.compress,
-                  drop_console: true, // Backup: also drop console via terser
-                  drop_debugger: true,
-                  pure_funcs: ["console.log", "console.info", "console.debug"],
-                },
-                mangle: {
-                  ...minimizer.options?.terserOptions?.mangle,
-                  safari10: true,
-                  // Obfuscate variable names
-                  properties: {
-                    regex: /^_/, // Only mangle properties starting with _
-                  },
-                },
-                format: {
-                  comments: false, // Remove all comments
-                },
-              },
-            })
-          }
-          return minimizer
-        }),
-      }
-    }
-    return config
-  },
-
-  turbopack: {},
-
-  /* ── Security headers ── */
   headers: async () => {
     if (!isProd) return []
     return [
@@ -87,7 +37,6 @@ const nextConfig = {
     ]
   },
 
-  /* ── Production source maps (disabled for security) ── */
   productionBrowserSourceMaps: false,
 }
 
