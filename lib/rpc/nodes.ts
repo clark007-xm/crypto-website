@@ -1,6 +1,12 @@
 "use client"
 
-export type ChainId = "eth-mainnet" | "sepolia"
+import {
+  DEFAULT_PUBLIC_CHAIN,
+  ENABLE_TESTNET,
+  type ConfiguredChainId,
+} from "@/lib/config/public-env"
+
+export type ChainId = ConfiguredChainId
 
 export interface RpcNode {
   id: string
@@ -24,15 +30,13 @@ export const CHAINS: Record<ChainId, { name: string; hexId: string; numericId: n
   "sepolia": { name: "Sepolia Testnet", hexId: "0xaa36a7", numericId: 11155111 },
 }
 
-/** Default chain based on environment */
-export const DEFAULT_CHAIN: ChainId = 
-  process.env.NODE_ENV === "development" ? "sepolia" : "eth-mainnet"
+/** Default chain based on public runtime config */
+export const DEFAULT_CHAIN: ChainId = DEFAULT_PUBLIC_CHAIN
 
 /** Check if a chain should be visible in the current environment */
 export function isChainAvailable(chainId: ChainId): boolean {
   if (chainId === "sepolia") {
-    // Sepolia only available in development
-    return process.env.NODE_ENV === "development"
+    return ENABLE_TESTNET
   }
   return true
 }
@@ -83,7 +87,7 @@ export const ETH_MAINNET_NODES: RpcNode[] = [
   },
 ]
 
-/** Sepolia Testnet RPC endpoints (only available in development) */
+/** Sepolia Testnet RPC endpoints */
 export const SEPOLIA_NODES: RpcNode[] = [
   {
     id: "sepolia-publicnode",
@@ -126,10 +130,16 @@ export function getNodesByChain(chain: ChainId): RpcNode[] {
   }
 }
 
-/** Get all available chains based on environment */
+export function getChainByNumericId(chainId: number | null): ChainId | null {
+  if (chainId === 1) return "eth-mainnet"
+  if (chainId === 11155111) return "sepolia"
+  return null
+}
+
+/** Get all available chains based on runtime config */
 export function getAvailableChains(): ChainId[] {
   const chains: ChainId[] = ["eth-mainnet"]
-  if (process.env.NODE_ENV === "development") {
+  if (ENABLE_TESTNET) {
     chains.push("sepolia")
   }
   return chains

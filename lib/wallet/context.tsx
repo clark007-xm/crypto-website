@@ -10,6 +10,8 @@ import React, {
 } from "react"
 import { BrowserProvider, formatEther } from "ethers"
 import type { JsonRpcSigner, Eip1193Provider } from "ethers"
+import { getExplorerBaseUrl } from "@/lib/contracts/addresses"
+import { CHAINS, getChainByNumericId, getNodesByChain } from "@/lib/rpc/nodes"
 
 /* ── augment Window ── */
 declare global {
@@ -181,6 +183,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   /* ── switch chain ── */
   const switchChain = useCallback(async (targetChainId: number): Promise<boolean> => {
     if (!window.ethereum) return false
+    const targetChain = getChainByNumericId(targetChainId)
     const hexChainId = `0x${targetChainId.toString(16)}`
     try {
       await window.ethereum.request({
@@ -190,16 +193,18 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       return true
     } catch (err: unknown) {
       // 4902 = chain not added to wallet, try adding it
-      if ((err as { code?: number })?.code === 4902 && targetChainId === 11155111) {
+      if ((err as { code?: number })?.code === 4902 && targetChain) {
+        const rpcUrls = getNodesByChain(targetChain).map((node) => node.url)
+        const chainMeta = CHAINS[targetChain]
         try {
           await window.ethereum.request({
             method: "wallet_addEthereumChain",
             params: [{
               chainId: hexChainId,
-              chainName: "Sepolia Testnet",
-              nativeCurrency: { name: "SepoliaETH", symbol: "ETH", decimals: 18 },
-              rpcUrls: ["https://ethereum-sepolia-rpc.publicnode.com"],
-              blockExplorerUrls: ["https://sepolia.etherscan.io"],
+              chainName: chainMeta.name,
+              nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+              rpcUrls,
+              blockExplorerUrls: [getExplorerBaseUrl(targetChainId)],
             }],
           })
           return true
@@ -209,7 +214,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       }
       return false
     }
-  }, [])
+}, [])
 
   const shortAddress = address ? shortenAddress(address) : null
 

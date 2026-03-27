@@ -29,7 +29,7 @@ function NodeListContent({
 
   return (
     <>
-      {/* Chain switcher (only shown when multiple chains available, i.e. in dev mode) */}
+      {/* Chain switcher */}
       {availableChains.length > 1 && (
         <>
           <div className="flex items-center gap-2 mb-2 px-1">
@@ -51,7 +51,7 @@ function NodeListContent({
               >
                 {CHAINS[c].name.replace(" Testnet", "").replace(" Mainnet", "")}
                 {c === "sepolia" && (
-                  <span className="badge badge-warning badge-xs ml-1">DEV</span>
+                  <span className="badge badge-warning badge-xs ml-1">TEST</span>
                 )}
               </button>
             ))}

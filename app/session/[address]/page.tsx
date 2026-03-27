@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Clock, Users, ExternalLink, Ticket, Loader2 } from "lucide-react"
+import { ArrowLeft, Clock, ExternalLink, Ticket, Loader2 } from "lucide-react"
 import { formatEther, ZeroAddress } from "ethers"
 import Link from "next/link"
 
@@ -39,7 +39,7 @@ export default function SessionDetailPage() {
       ? Number(session.commitDeadline) * 1000
       : Date.now() + 60000
   }, [session?.commitDeadline])
-  const { days, hours, minutes, seconds, isExpired } = useCountdown(endTimeMs)
+  const { days, hours, minutes, seconds } = useCountdown(endTimeMs)
   
   // Calculate values
   const isEth = session?.paymentToken === ZeroAddress
@@ -234,7 +234,6 @@ export default function SessionDetailPage() {
           <PlayerClaimPanel 
             session={session} 
             playerTicketCount={Number(playerTicketCount)}
-            isUnsoldSettled={false} // TODO: fetch actual settlement status
           />
         )}
       </div>

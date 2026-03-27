@@ -110,7 +110,7 @@ export const zh: Dictionary = {
     partner: "\u5408\u4F19\u4EBA",
     createTable: "\u5F00\u684C",
     wrongNetwork: "\u7F51\u7EDC\u4E0D\u5339\u914D",
-    switchToSepolia: "\u5207\u6362\u5230 Sepolia \u6D4B\u8BD5\u7F51",
+    switchToChain: "\u5207\u6362\u5230 {chain}",
     switching: "\u5207\u6362\u4E2D...",
   },
   contract: {
@@ -211,6 +211,12 @@ export const zh: Dictionary = {
     notCreator: "仅创建者可操作",
     allTicketsSold: "所有票已售出",
     commitNotEnded: "购票阶段尚未结束",
+    creatorAbsentSettlement: "创建者缺席结算",
+    creatorAbsentSettlementDesc: "当票已售罄且开奖阶段结束后，管理员可强制结算并发放更高补偿",
+    revealNotEnded: "开奖阶段尚未结束",
+    finalizeCreatorAbsent: "确认 Creator Absent 结算",
+    creatorAbsentFinalizeSuccess: "Creator Absent 结算成功！",
+    claimCreatorAbsentDesc: "创建者未按时揭示结果，你可以领取本金和更高补偿",
     // Player claim
     claimRefundPanel: "领取退款",
     claimRefundDesc: "票未售罄已结算，你可以领取本金和补偿",

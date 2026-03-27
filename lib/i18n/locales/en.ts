@@ -110,7 +110,7 @@ export const en: Dictionary = {
     partner: "Partner",
     createTable: "Create Table",
     wrongNetwork: "Wrong Network",
-    switchToSepolia: "Switch to Sepolia Testnet",
+    switchToChain: "Switch to {chain}",
     switching: "Switching...",
   },
   contract: {
@@ -211,6 +211,12 @@ export const en: Dictionary = {
     notCreator: "Only creator can operate",
     allTicketsSold: "All tickets sold",
     commitNotEnded: "Commit phase not ended yet",
+    creatorAbsentSettlement: "Creator Absent Settlement",
+    creatorAbsentSettlementDesc: "When all tickets are sold and reveal time ends, admin can force settlement with higher compensation",
+    revealNotEnded: "Reveal phase not ended yet",
+    finalizeCreatorAbsent: "Finalize Creator Absent",
+    creatorAbsentFinalizeSuccess: "Creator absent settlement successful!",
+    claimCreatorAbsentDesc: "The creator did not reveal in time. Claim your principal and higher compensation",
     // Player claim
     claimRefundPanel: "Claim Refund",
     claimRefundDesc: "Unsold tickets settlement completed, claim your principal and compensation",

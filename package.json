@@ -4,7 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:mainnet": "NEXT_PUBLIC_ENABLE_TESTNET=false NEXT_PUBLIC_DEFAULT_CHAIN=eth-mainnet next dev",
+    "dev:testnet": "NEXT_PUBLIC_ENABLE_TESTNET=true NEXT_PUBLIC_DEFAULT_CHAIN=sepolia next dev",
     "build": "next build",
+    "build:mainnet": "NEXT_PUBLIC_ENABLE_TESTNET=false NEXT_PUBLIC_DEFAULT_CHAIN=eth-mainnet next build",
+    "build:testnet": "NEXT_PUBLIC_ENABLE_TESTNET=true NEXT_PUBLIC_DEFAULT_CHAIN=sepolia next build",
     "start": "next start",
     "lint": "npm run typecheck",
     "typecheck": "tsc --noEmit"

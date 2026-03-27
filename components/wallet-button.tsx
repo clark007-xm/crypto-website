@@ -7,24 +7,14 @@ import { useWallet } from "@/lib/wallet/context"
 import { useT } from "@/lib/i18n/context"
 import { useIsPartner, usePartnerDeposit } from "@/lib/contracts/hooks"
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
+import { useRpc } from "@/lib/rpc/context"
+import { CHAINS, getChainByNumericId } from "@/lib/rpc/nodes"
 import { formatEther } from "ethers"
 import { ConnectModal } from "./connect-modal"
 
-/* chain name map */
-const CHAIN_NAMES: Record<number, string> = {
-  1: "Ethereum",
-  5: "Goerli",
-  11155111: "Sepolia",
-  56: "BSC",
-  97: "BSC Testnet",
-  137: "Polygon",
-  42161: "Arbitrum",
-  10: "Optimism",
-  8453: "Base",
-}
-
 export function WalletButton() {
   const { status, shortAddress, address, balance, chainId, disconnect, switchChain } = useWallet()
+  const { chain } = useRpc()
   const t = useT()
   const [modalOpen, setModalOpen] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -32,15 +22,14 @@ export function WalletButton() {
   const { isPartner, loading: partnerLoading, checked: partnerChecked } = useIsPartner()
   const { balance: depositBalance, loading: depositLoading, refresh: refreshDeposit } = usePartnerDeposit()
 
-  const chainName = chainId ? CHAIN_NAMES[chainId] ?? `Chain ${chainId}` : ""
-  
-  // In development, check if user is on wrong network (should be Sepolia)
-  const isDev = process.env.NODE_ENV === "development"
-  const isWrongNetwork = isDev && chainId !== null && chainId !== 11155111
+  const selectedChainId = CHAINS[chain].numericId
+  const connectedChain = getChainByNumericId(chainId)
+  const chainName = connectedChain ? CHAINS[connectedChain].name : chainId ? `Chain ${chainId}` : ""
+  const isWrongNetwork = chainId !== null && chainId !== selectedChainId
 
-  const handleSwitchToSepolia = async () => {
+  const handleSwitchToSelectedChain = async () => {
     setSwitching(true)
-    await switchChain(11155111)
+    await switchChain(selectedChainId)
     setSwitching(false)
   }
 
@@ -125,7 +114,7 @@ export function WalletButton() {
           </div>
         </div>
 
-        {/* Wrong network warning (dev only) */}
+        {/* Wrong network warning */}
         {isWrongNetwork && (
           <div className="p-3 bg-warning/10 border-b border-warning/20">
             <div className="flex items-center gap-2 text-warning mb-2">
@@ -134,10 +123,12 @@ export function WalletButton() {
             </div>
             <button
               className={`btn btn-warning btn-xs btn-block ${switching ? "loading" : ""}`}
-              onClick={handleSwitchToSepolia}
+              onClick={handleSwitchToSelectedChain}
               disabled={switching}
             >
-              {switching ? t.wallet.switching : t.wallet.switchToSepolia}
+              {switching
+                ? t.wallet.switching
+                : t.wallet.switchToChain.replace("{chain}", CHAINS[chain].name)}
             </button>
           </div>
         )}

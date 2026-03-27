@@ -110,7 +110,7 @@ export const vi: Dictionary = {
     partner: "\u0110\u1ED1i t\u00E1c",
     createTable: "T\u1EA1o b\u00E0n",
     wrongNetwork: "Sai m\u1EA1ng",
-    switchToSepolia: "Chuy\u1EC3n sang Sepolia Testnet",
+    switchToChain: "Chuy\u1EC3n sang {chain}",
     switching: "\u0110ang chuy\u1EC3n...",
   },
   contract: {
@@ -211,6 +211,12 @@ export const vi: Dictionary = {
     notCreator: "Ch\u1EC9 ng\u01B0\u1EDDi t\u1EA1o m\u1EDBi c\u00F3 th\u1EC3 th\u1EF1c hi\u1EC7n",
     allTicketsSold: "T\u1EA5t c\u1EA3 v\u00E9 \u0111\u00E3 b\u00E1n",
     commitNotEnded: "Giai \u0111o\u1EA1n mua ch\u01B0a k\u1EBFt th\u00FAc",
+    creatorAbsentSettlement: "Thanh to\u00E1n khi creator v\u1EAFng m\u1EB7t",
+    creatorAbsentSettlementDesc: "Khi \u0111\u00E3 b\u00E1n h\u1EBFt v\u00E9 v\u00E0 h\u1EBFt th\u1EDDi gian reveal, admin c\u00F3 th\u1EC3 c\u01B0\u1EE1ng ch\u1EBF thanh to\u00E1n v\u1EDBi m\u1EE9c b\u1ED3i th\u01B0\u1EDDng cao h\u01A1n",
+    revealNotEnded: "Giai \u0111o\u1EA1n reveal ch\u01B0a k\u1EBFt th\u00FAc",
+    finalizeCreatorAbsent: "X\u00E1c nh\u1EADn settlement creator absent",
+    creatorAbsentFinalizeSuccess: "Settlement creator absent th\u00E0nh c\u00F4ng!",
+    claimCreatorAbsentDesc: "Creator kh\u00F4ng reveal \u0111\u00FAng h\u1EA1n, b\u1EA1n c\u00F3 th\u1EC3 nh\u1EADn l\u1EA1i ti\u1EC1n g\u1ED1c v\u00E0 b\u1ED3i th\u01B0\u1EDDng cao h\u01A1n",
     // Player claim
     claimRefundPanel: "Nh\u1EADn ho\u00E0n ti\u1EC1n",
     claimRefundDesc: "Thanh to\u00E1n v\u00E9 ch\u01B0a b\u00E1n ho\u00E0n t\u1EA5t, nh\u1EADn l\u1EA1i ti\u1EC1n g\u1ED1c v\u00E0 b\u1ED3i th\u01B0\u1EDDng",

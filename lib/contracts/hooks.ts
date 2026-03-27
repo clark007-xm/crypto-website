@@ -5,11 +5,33 @@ import { Contract, formatUnits, parseUnits, ZeroAddress } from "ethers"
 import type { ContractTransactionResponse } from "ethers"
 import { useWallet } from "@/lib/wallet/context"
 import { useRpc } from "@/lib/rpc/context"
+import { CHAINS } from "@/lib/rpc/nodes"
 import { ERC20_ABI, FACTORY_ABI, SESSION_ABI, TREASURY_ABI } from "./abis"
 import { getAddresses, hasDeployedContracts } from "./addresses"
 import { getMaxBlockRange } from "./config"
 
 const REQUIRED_PARTNER_DEPOSIT = 100000000000000000n
+
+export const SESSION_SETTLEMENT_TYPES = {
+  NORMAL: 0,
+  UNSOLD_TICKETS: 1,
+  CREATOR_ABSENT: 2,
+} as const
+
+export type SessionSettlementType =
+  typeof SESSION_SETTLEMENT_TYPES[keyof typeof SESSION_SETTLEMENT_TYPES]
+
+function normalizeSettlementType(value: unknown): SessionSettlementType | null {
+  const numeric = Number(value)
+  if (
+    numeric === SESSION_SETTLEMENT_TYPES.NORMAL ||
+    numeric === SESSION_SETTLEMENT_TYPES.UNSOLD_TICKETS ||
+    numeric === SESSION_SETTLEMENT_TYPES.CREATOR_ABSENT
+  ) {
+    return numeric as SessionSettlementType
+  }
+  return null
+}
 
 /* ════════════════════════════════════════════════════════════════════════════
  *  ERC-20 / USDT Hooks
@@ -166,7 +188,7 @@ export function useFactoryContractReadOnly() {
   const { chainId: walletChainId } = useWallet()
   const { readProvider, chain } = useRpc()
 
-  const rpcChainId = chain === "sepolia" ? 11155111 : 1
+  const rpcChainId = CHAINS[chain].numericId
   const chainId =
     walletChainId && hasDeployedContracts(walletChainId)
       ? walletChainId
@@ -469,6 +491,7 @@ export interface SessionConfigFromEvent {
   unlockTimestamp: bigint
   ticketsSold: bigint
   isSettled: boolean
+  settlementType: SessionSettlementType | null
   // Computed fields
   commitDeadline: bigint
   revealDeadline: bigint
@@ -482,7 +505,7 @@ export function useActiveSessions() {
 
   const factoryRef = useRef(factory)
   factoryRef.current = factory
-  const activeChainId = chain === "sepolia" ? 11155111 : 1
+  const activeChainId = CHAINS[chain].numericId
 
   const refresh = useCallback(async () => {
     const currentFactory = factoryRef.current
@@ -549,10 +572,14 @@ export function useActiveSessions() {
               unlockTimestamp = BigInt(block.timestamp)
             }
 
-            const [ticketsSold, isSettled] = await Promise.all([
+            const [ticketsSold, isSettled, rawSettlementType] = await Promise.all([
               sessionContract.nextTicketIndex().catch(() => 0n),
               sessionContract.isSettled().catch(() => false),
+              sessionContract.settledType().catch(() => 0n),
             ])
+            const settlementType = Boolean(isSettled)
+              ? normalizeSettlementType(rawSettlementType)
+              : null
 
             const commitDeadline = unlockTimestamp + commitDurationSeconds
             const revealDeadline = commitDeadline + revealDurationSeconds
@@ -576,6 +603,7 @@ export function useActiveSessions() {
               unlockTimestamp,
               ticketsSold: BigInt(ticketsSold),
               isSettled: Boolean(isSettled),
+              settlementType,
               commitDeadline,
               revealDeadline,
             } satisfies SessionConfigFromEvent
@@ -617,6 +645,7 @@ export interface SessionInfo {
   ticketsSold: bigint
   paymentToken: string
   isSettled: boolean
+  settlementType: SessionSettlementType | null
   winner: string
   commitDeadline: bigint
   revealDeadline: bigint
@@ -659,6 +688,7 @@ export function useSessionInfo(sessionAddress: string | null) {
         commitDurationSeconds,
         revealDurationSeconds,
         isSettled,
+        rawSettlementType,
       ] = await Promise.all([
         currentSession.ticketPrice().catch(() => 0n),
         currentSession.totalTickets().catch(() => 0n),
@@ -668,6 +698,7 @@ export function useSessionInfo(sessionAddress: string | null) {
         currentSession.commitDurationSeconds().catch(() => 0n),
         currentSession.revealDurationSeconds().catch(() => 0n),
         currentSession.isSettled().catch(() => false),
+        currentSession.settledType().catch(() => 0n),
       ])
 
       const commitDeadline = BigInt(unlockTimestamp) + BigInt(commitDurationSeconds)
@@ -675,6 +706,9 @@ export function useSessionInfo(sessionAddress: string | null) {
       const now = BigInt(Math.floor(Date.now() / 1000))
       const isCommitPhaseActive = commitDeadline > 0n && now < commitDeadline && !isSettled
       const canSettle = revealDeadline > 0n && now > revealDeadline && !isSettled
+      const settlementType = Boolean(isSettled)
+        ? normalizeSettlementType(rawSettlementType)
+        : null
 
       setInfo({
         address: sessionAddress,
@@ -683,6 +717,7 @@ export function useSessionInfo(sessionAddress: string | null) {
         ticketsSold: BigInt(ticketsSold),
         paymentToken: String(paymentToken),
         isSettled: Boolean(isSettled),
+        settlementType,
         winner: ZeroAddress,
         commitDeadline,
         revealDeadline,
@@ -896,12 +931,41 @@ export function useUnsoldSettlement() {
   return { finalizeUnsoldSettlement, loading, error }
 }
 
+export function useCreatorAbsentSettlement() {
+  const { signer } = useWallet()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const signerRef = useRef(signer)
+  signerRef.current = signer
+
+  const finalizeCreatorAbsentSettlement = useCallback(async (sessionAddress: string) => {
+    const currentSigner = signerRef.current
+    if (!currentSigner) return null
+    setLoading(true)
+    setError(null)
+    try {
+      const contract = new Contract(sessionAddress, SESSION_ABI, currentSigner)
+      const tx = (await contract.finalizeCreatorAbsentSettlement()) as ContractTransactionResponse
+      await tx.wait()
+      return tx
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Creator absent settlement failed")
+      return null
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  return { finalizeCreatorAbsentSettlement, loading, error }
+}
+
 /**
  * Hook for players to claim principal and penalty compensation
  * when tickets are unsold and settlement has been triggered.
  * Behavior:
  * - Player claims full principal (ticket cost)
- * - Player receives compensation from creator deposit based on creatorAbsentPartnerDepositSlashBps
+ * - Player receives compensation from creator deposit based on unsold settlement ratio
  * - Each player claims independently
  * - Duplicate claims will be rejected
  */
@@ -932,6 +996,35 @@ export function useClaimPrincipalAndPenalty() {
   }, [])
 
   return { claimPrincipalAndPenalty, loading, error }
+}
+
+export function useClaimPrincipalAndCompensationIfCreatorAbsent() {
+  const { signer } = useWallet()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const signerRef = useRef(signer)
+  signerRef.current = signer
+
+  const claimPrincipalAndCompensation = useCallback(async (sessionAddress: string) => {
+    const currentSigner = signerRef.current
+    if (!currentSigner) return null
+    setLoading(true)
+    setError(null)
+    try {
+      const contract = new Contract(sessionAddress, SESSION_ABI, currentSigner)
+      const tx = (await contract.creditPrincipalAndCompensationIfCreatorAbsent()) as ContractTransactionResponse
+      await tx.wait()
+      return tx
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Claim failed")
+      return null
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  return { claimPrincipalAndCompensation, loading, error }
 }
 
 /* ═════════════════════════════════��══════════════════════════════════════════

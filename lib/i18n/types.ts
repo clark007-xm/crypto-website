@@ -110,7 +110,7 @@ export interface Dictionary {
     partner: string
     createTable: string
     wrongNetwork: string
-    switchToSepolia: string
+    switchToChain: string
     switching: string
   }
   contract: {
@@ -221,6 +221,12 @@ export interface Dictionary {
     notCreator: string
     allTicketsSold: string
     commitNotEnded: string
+    creatorAbsentSettlement: string
+    creatorAbsentSettlementDesc: string
+    revealNotEnded: string
+    finalizeCreatorAbsent: string
+    creatorAbsentFinalizeSuccess: string
+    claimCreatorAbsentDesc: string
     // Player claim
     claimRefundPanel: string
     claimRefundDesc: string
