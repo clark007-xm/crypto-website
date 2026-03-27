@@ -204,8 +204,12 @@ export interface Dictionary {
     connectToBuy: string
     processing: string
     buySuccess: string
+    notStarted: string
+    startsAt: string
+    buyEndedAt: string
     commitEnded: string
     waitingReveal: string
+    invalidSchedule: string
     sessionSettled: string
     // Creator management
     creatorPanel: string

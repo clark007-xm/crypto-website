@@ -6,7 +6,7 @@ import { Clock, Users, Flame, ExternalLink } from "lucide-react"
 import { useCountdown } from "@/hooks/use-countdown"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
-import { type SessionConfigFromEvent } from "@/lib/contracts/hooks"
+import { getSessionPhaseState, type SessionConfigFromEvent } from "@/lib/contracts/hooks"
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
 import { formatEther, ZeroAddress } from "ethers"
 import Link from "next/link"
@@ -26,13 +26,18 @@ export function SessionCard({ session }: SessionCardProps) {
   const t = useT()
   const { status } = useWallet()
   const [modalOpen, setModalOpen] = useState(false)
+  const phase = getSessionPhaseState(session.unlockTimestamp, session.commitDeadline, session.isSettled)
 
   // Calculate countdown from commitDeadline (memoize to prevent infinite re-renders)
   const endTimeMs = useMemo(() => {
-    return session.commitDeadline > 0n
-      ? Number(session.commitDeadline) * 1000
-      : Date.now() + 60000
-  }, [session.commitDeadline])
+    if (phase.isUpcoming && session.unlockTimestamp > 0n) {
+      return Number(session.unlockTimestamp) * 1000
+    }
+    if (phase.isCommitPhaseActive && session.commitDeadline > 0n) {
+      return Number(session.commitDeadline) * 1000
+    }
+    return Date.now() + 60000
+  }, [phase.isUpcoming, phase.isCommitPhaseActive, session.unlockTimestamp, session.commitDeadline])
   const { days, hours, minutes, seconds } = useCountdown(endTimeMs)
 
   // Determine if using ETH or ERC20 token
@@ -51,10 +56,7 @@ export function SessionCard({ session }: SessionCardProps) {
   const totalPoolValue = ticketPriceNum * totalTickets
   const totalPoolUsdt = totalPoolValue * ETH_USDT_RATE
 
-  // Check if commit phase is over
-  const now = Math.floor(Date.now() / 1000)
   const isSettled = session.isSettled
-  const isCommitPhaseActive = !isSettled && now < Number(session.commitDeadline)
 
   // Short session address for display
   const shortAddress = `${session.sessionAddress.slice(0, 6)}...${session.sessionAddress.slice(-4)}`
@@ -88,12 +90,17 @@ export function SessionCard({ session }: SessionCardProps) {
             </div>
           </div>
           <div className="flex flex-col items-end gap-1">
-            {isCommitPhaseActive && (
+            {phase.isCommitPhaseActive && (
               <div className="badge badge-success badge-sm font-bold">
                 {t.products.buying}
               </div>
             )}
-            {!isCommitPhaseActive && !isSettled && (
+            {phase.isUpcoming && !isSettled && (
+              <div className="badge badge-info badge-sm font-bold">
+                {t.session.notStarted}
+              </div>
+            )}
+            {phase.isRevealPhase && !isSettled && (
               <div className="badge badge-warning badge-sm font-bold">
                 {t.products.revealing}
               </div>
@@ -151,9 +158,35 @@ export function SessionCard({ session }: SessionCardProps) {
           <div className="flex items-center justify-center gap-2 py-2">
             <span className="badge badge-success">{t.products.settled}</span>
           </div>
-        ) : !isCommitPhaseActive ? (
+        ) : phase.isRevealPhase ? (
           <div className="flex items-center justify-center gap-2 py-2">
             <span className="badge badge-warning">{t.products.revealing}</span>
+          </div>
+        ) : phase.isUpcoming ? (
+          <div className="flex items-center justify-center gap-2">
+            <Clock className="h-3.5 w-3.5 text-base-content/40" />
+            <span className="text-xs text-base-content/40">{t.session.notStarted}</span>
+            <div className="flex items-center gap-1 font-display text-sm">
+              {days > 0 && (
+                <>
+                  <span className="bg-base-300 rounded px-2 py-0.5 text-info font-bold tabular-nums">
+                    {days}{t.create.days}
+                  </span>
+                  <span className="text-base-content/20 font-bold">:</span>
+                </>
+              )}
+              <span className="bg-base-300 rounded px-2 py-0.5 text-info font-bold tabular-nums">
+                {String(hours).padStart(2, "0")}
+              </span>
+              <span className="text-base-content/20 font-bold">:</span>
+              <span className="bg-base-300 rounded px-2 py-0.5 text-info font-bold tabular-nums">
+                {String(minutes).padStart(2, "0")}
+              </span>
+              <span className="text-base-content/20 font-bold">:</span>
+              <span className="bg-base-300 rounded px-2 py-0.5 text-info font-bold tabular-nums">
+                {String(seconds).padStart(2, "0")}
+              </span>
+            </div>
           </div>
         ) : (
           <div className="flex items-center justify-center gap-2">

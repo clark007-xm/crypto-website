@@ -194,8 +194,12 @@ export const en: Dictionary = {
     connectToBuy: "Connect to Buy",
     processing: "Processing...",
     buySuccess: "Purchase successful!",
+    notStarted: "Not started",
+    startsAt: "Starts at: {time}",
+    buyEndedAt: "Ticket sales ended at: {time}",
     commitEnded: "Buying phase ended",
     waitingReveal: "Waiting for reveal...",
+    invalidSchedule: "This session was created without a valid start timestamp, so the contract already treats its buy window as expired.",
     sessionSettled: "Session settled",
     // Creator management
     creatorPanel: "Creator Management",

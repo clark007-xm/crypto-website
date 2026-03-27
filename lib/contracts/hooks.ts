@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Contract, formatUnits, parseUnits, ZeroAddress } from "ethers"
+import { Contract, Interface, formatUnits, parseUnits, ZeroAddress } from "ethers"
 import type { ContractTransactionResponse } from "ethers"
 import { useWallet } from "@/lib/wallet/context"
 import { useRpc } from "@/lib/rpc/context"
@@ -11,6 +11,7 @@ import { getAddresses, hasDeployedContracts } from "./addresses"
 import { getMaxBlockRange } from "./config"
 
 const REQUIRED_PARTNER_DEPOSIT = 100000000000000000n
+const SESSION_INTERFACE = new Interface(SESSION_ABI)
 
 export const SESSION_SETTLEMENT_TYPES = {
   NORMAL: 0,
@@ -31,6 +32,178 @@ function normalizeSettlementType(value: unknown): SessionSettlementType | null {
     return numeric as SessionSettlementType
   }
   return null
+}
+
+export interface SessionPhaseState {
+  nowSeconds: bigint
+  isUpcoming: boolean
+  isCommitPhaseActive: boolean
+  hasCommitEnded: boolean
+  isRevealPhase: boolean
+}
+
+export function getSessionPhaseState(
+  unlockTimestamp: bigint,
+  commitDeadline: bigint,
+  isSettled: boolean,
+  nowSeconds: bigint | number = BigInt(Math.floor(Date.now() / 1000))
+): SessionPhaseState {
+  const currentTime =
+    typeof nowSeconds === "number" ? BigInt(Math.floor(nowSeconds)) : nowSeconds
+  const isUpcoming = !isSettled && currentTime < unlockTimestamp
+  const isCommitPhaseActive =
+    !isSettled &&
+    currentTime >= unlockTimestamp &&
+    commitDeadline > 0n &&
+    currentTime < commitDeadline
+  const hasCommitEnded = !isSettled && commitDeadline > 0n && currentTime >= commitDeadline
+
+  return {
+    nowSeconds: currentTime,
+    isUpcoming,
+    isCommitPhaseActive,
+    hasCommitEnded,
+    isRevealPhase: !isSettled && hasCommitEnded,
+  }
+}
+
+interface SessionPurchaseState {
+  unlockTimestamp: bigint
+  commitDurationSeconds: bigint
+  commitDeadline: bigint
+  totalTickets: bigint
+  ticketsSold: bigint
+  isSettled: boolean
+}
+
+function formatTimestampForUser(timestamp: bigint) {
+  if (timestamp <= 0n) return null
+  const milliseconds = Number(timestamp) * 1000
+  if (!Number.isFinite(milliseconds)) return null
+  return new Date(milliseconds).toLocaleString()
+}
+
+function extractRevertData(error: unknown): string | null {
+  const queue: unknown[] = [error]
+  const visited = new Set<unknown>()
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (current == null || visited.has(current)) continue
+    visited.add(current)
+
+    if (typeof current === "string") {
+      if (/^0x[0-9a-fA-F]+$/.test(current)) {
+        return current
+      }
+      continue
+    }
+
+    if (typeof current !== "object") continue
+
+    const candidate = (current as { data?: unknown }).data
+    if (typeof candidate === "string" && /^0x[0-9a-fA-F]+$/.test(candidate)) {
+      return candidate
+    }
+
+    for (const key of ["data", "error", "info", "cause", "revert", "originalError"]) {
+      const nested = (current as Record<string, unknown>)[key]
+      if (nested != null) {
+        queue.push(nested)
+      }
+    }
+  }
+
+  return null
+}
+
+async function readSessionPurchaseState(contract: Contract): Promise<SessionPurchaseState> {
+  const [unlockTimestamp, commitDurationSeconds, totalTickets, ticketsSold, isSettled] =
+    await Promise.all([
+      contract.unlockTimestamp().catch(() => 0n),
+      contract.commitDurationSeconds().catch(() => 0n),
+      contract.totalTickets().catch(() => 0n),
+      contract.nextTicketIndex().catch(() => 0n),
+      contract.isSettled().catch(() => false),
+    ])
+
+  return {
+    unlockTimestamp: BigInt(unlockTimestamp),
+    commitDurationSeconds: BigInt(commitDurationSeconds),
+    commitDeadline: BigInt(unlockTimestamp) + BigInt(commitDurationSeconds),
+    totalTickets: BigInt(totalTickets),
+    ticketsSold: BigInt(ticketsSold),
+    isSettled: Boolean(isSettled),
+  }
+}
+
+function getBuyWindowErrorMessage(state: SessionPurchaseState) {
+  const nowSeconds = BigInt(Math.floor(Date.now() / 1000))
+
+  if (state.isSettled) {
+    return "This session is already settled."
+  }
+
+  if (nowSeconds < state.unlockTimestamp) {
+    const startLabel = formatTimestampForUser(state.unlockTimestamp)
+    return startLabel
+      ? `Ticket sales have not started yet. Starts at ${startLabel}.`
+      : "Ticket sales have not started yet."
+  }
+
+  if (state.unlockTimestamp === 0n && state.commitDeadline > 0n && nowSeconds >= state.commitDeadline) {
+    return "This session was created without a valid start timestamp, so the contract already treats the buy window as expired."
+  }
+
+  if (state.commitDeadline > 0n && nowSeconds >= state.commitDeadline) {
+    const deadlineLabel = formatTimestampForUser(state.commitDeadline)
+    return deadlineLabel
+      ? `Ticket sales have ended. The buy window closed at ${deadlineLabel}.`
+      : "Ticket sales have ended."
+  }
+
+  return null
+}
+
+function decodeSessionBuyError(
+  error: unknown,
+  state?: SessionPurchaseState,
+  quantity?: number
+) {
+  const data = extractRevertData(error)
+
+  if (data) {
+    try {
+      const decoded = SESSION_INTERFACE.parseError(data)
+      switch (decoded?.name) {
+        case "TimeConstraintError":
+          return state
+            ? getBuyWindowErrorMessage(state) ?? "Current time is outside the ticket purchase window."
+            : "Current time is outside the ticket purchase window."
+        case "SoldOut": {
+          const available = decoded.args?.[0]
+          const requested = decoded.args?.[1] ?? quantity ?? 0
+          return `Not enough tickets left. Available: ${String(available)}, requested: ${String(requested)}.`
+        }
+        case "IncorrectETHAmount":
+          return "Payment amount does not match the required ticket total."
+        case "SessionStatusError":
+          return "This session is not open for ticket purchases."
+        case "InvalidZeroInput":
+          return "Please enter a valid quantity and secret before buying."
+        case "AlreadySettled":
+          return "This session is already settled."
+        case "Unauthorized":
+          return "Your wallet is not allowed to perform this action."
+        default:
+          break
+      }
+    } catch {
+      // Fall through to generic message below.
+    }
+  }
+
+  return error instanceof Error ? error.message : "Buy tickets failed"
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -417,6 +590,16 @@ export function useCreateSession() {
       try {
         const { factory, usdt, treasury } = getAddresses(chainId)
         const factoryContract = new Contract(factory, FACTORY_ABI, currentSigner)
+        let unlockTimestamp = BigInt(Math.floor(Date.now() / 1000))
+
+        try {
+          const latestBlock = await currentSigner.provider?.getBlock("latest")
+          if (latestBlock?.timestamp) {
+            unlockTimestamp = BigInt(latestBlock.timestamp)
+          }
+        } catch {
+          // Fallback to local wall-clock time if the latest block can't be read.
+        }
 
         // Build the SessionConfig tuple
         // admin, creator, sessionCommitment, treasury, paymentToken, ticketPrice, totalTickets,
@@ -436,7 +619,7 @@ export function useCreateSession() {
           creatorAbsentPartnerDepositSlashBps: 0,
           commitDurationSeconds: BigInt(config.commitDurationSeconds),
           revealDurationSeconds: BigInt(config.revealDurationSeconds),
-          unlockTimestamp: 0n, // 0 means start immediately
+          unlockTimestamp,
         }
 
         const tx = await factoryContract.createSession(sessionConfig)
@@ -561,15 +744,7 @@ export function useActiveSessions() {
             try {
               unlockTimestamp = BigInt((await sessionContract.unlockTimestamp()) as bigint)
             } catch {
-              if (unlockTimestamp === 0n) {
-                const block = await event.getBlock()
-                unlockTimestamp = BigInt(block.timestamp)
-              }
-            }
-
-            if (unlockTimestamp === 0n) {
-              const block = await event.getBlock()
-              unlockTimestamp = BigInt(block.timestamp)
+              // Keep the event value if the direct call fails.
             }
 
             const [ticketsSold, isSettled, rawSettlementType] = await Promise.all([
@@ -647,6 +822,9 @@ export interface SessionInfo {
   isSettled: boolean
   settlementType: SessionSettlementType | null
   winner: string
+  unlockTimestamp: bigint
+  commitDurationSeconds: bigint
+  revealDurationSeconds: bigint
   commitDeadline: bigint
   revealDeadline: bigint
   isCommitPhaseActive: boolean
@@ -703,9 +881,15 @@ export function useSessionInfo(sessionAddress: string | null) {
 
       const commitDeadline = BigInt(unlockTimestamp) + BigInt(commitDurationSeconds)
       const revealDeadline = commitDeadline + BigInt(revealDurationSeconds)
-      const now = BigInt(Math.floor(Date.now() / 1000))
-      const isCommitPhaseActive = commitDeadline > 0n && now < commitDeadline && !isSettled
-      const canSettle = revealDeadline > 0n && now > revealDeadline && !isSettled
+      const phase = getSessionPhaseState(
+        BigInt(unlockTimestamp),
+        commitDeadline,
+        Boolean(isSettled)
+      )
+      const canSettle =
+        revealDeadline > 0n &&
+        phase.nowSeconds >= revealDeadline &&
+        !Boolean(isSettled)
       const settlementType = Boolean(isSettled)
         ? normalizeSettlementType(rawSettlementType)
         : null
@@ -719,9 +903,12 @@ export function useSessionInfo(sessionAddress: string | null) {
         isSettled: Boolean(isSettled),
         settlementType,
         winner: ZeroAddress,
+        unlockTimestamp: BigInt(unlockTimestamp),
+        commitDurationSeconds: BigInt(commitDurationSeconds),
+        revealDurationSeconds: BigInt(revealDurationSeconds),
         commitDeadline,
         revealDeadline,
-        isCommitPhaseActive,
+        isCommitPhaseActive: phase.isCommitPhaseActive,
         canSettle,
       })
       lastFetchedAddress.current = sessionAddress
@@ -811,8 +998,31 @@ export function useBuyTickets() {
       if (!currentSigner) return null
       setLoading(true)
       setError(null)
+      let purchaseState: SessionPurchaseState | undefined
       try {
         const contract = new Contract(sessionAddress, SESSION_ABI, currentSigner)
+        purchaseState = await readSessionPurchaseState(contract)
+        const windowError = getBuyWindowErrorMessage(purchaseState)
+
+        if (windowError) {
+          setError(windowError)
+          return null
+        }
+
+        if (purchaseState.ticketsSold + BigInt(quantity) > purchaseState.totalTickets) {
+          setError(
+            `Not enough tickets left. Available: ${(purchaseState.totalTickets - purchaseState.ticketsSold).toString()}, requested: ${quantity}.`
+          )
+          return null
+        }
+
+        await contract.playerBuyAndCommitTicket.staticCall(
+          quantity,
+          secret,
+          useBalance,
+          { value: value || 0n }
+        )
+
         const tx = (await contract.playerBuyAndCommitTicket(
           quantity,
           secret,
@@ -822,7 +1032,7 @@ export function useBuyTickets() {
         await tx.wait()
         return tx
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Buy tickets failed")
+        setError(decodeSessionBuyError(err, purchaseState, quantity))
         return null
       } finally {
         setLoading(false)

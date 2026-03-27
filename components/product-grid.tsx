@@ -3,7 +3,7 @@
 import { useEffect, useMemo } from "react"
 import { SessionCard } from "./session-card"
 import { useT } from "@/lib/i18n/context"
-import { useActiveSessions } from "@/lib/contracts/hooks"
+import { getSessionPhaseState, useActiveSessions } from "@/lib/contracts/hooks"
 import { RefreshCw, Inbox } from "lucide-react"
 
 export function ProductGrid() {
@@ -18,15 +18,27 @@ export function ProductGrid() {
   
   // Sort sessions: active (commit phase) first, then by deadline
   const sortedSessions = useMemo(() => {
-    const now = Math.floor(Date.now() / 1000)
+    const now = BigInt(Math.floor(Date.now() / 1000))
     return [...sessions].sort((a, b) => {
-      const aActive = now < Number(a.commitDeadline)
-      const bActive = now < Number(b.commitDeadline)
-      // Active sessions first
-      if (aActive && !bActive) return -1
-      if (!aActive && bActive) return 1
-      // Within same status, newer first (higher deadline first for active)
-      return Number(b.commitDeadline) - Number(a.commitDeadline)
+      const aPhase = getSessionPhaseState(a.unlockTimestamp, a.commitDeadline, a.isSettled, now)
+      const bPhase = getSessionPhaseState(b.unlockTimestamp, b.commitDeadline, b.isSettled, now)
+
+      const getRank = (isActive: boolean, isUpcoming: boolean, isReveal: boolean) => {
+        if (isActive) return 0
+        if (isUpcoming) return 1
+        if (isReveal) return 2
+        return 3
+      }
+
+      const aRank = getRank(aPhase.isCommitPhaseActive, aPhase.isUpcoming, aPhase.isRevealPhase)
+      const bRank = getRank(bPhase.isCommitPhaseActive, bPhase.isUpcoming, bPhase.isRevealPhase)
+      if (aRank !== bRank) {
+        return aRank - bRank
+      }
+
+      const aSortTime = aPhase.isUpcoming ? Number(a.unlockTimestamp) : Number(a.commitDeadline)
+      const bSortTime = bPhase.isUpcoming ? Number(b.unlockTimestamp) : Number(b.commitDeadline)
+      return bSortTime - aSortTime
     })
   }, [sessions])
 

@@ -6,7 +6,7 @@ import { X, Eye, EyeOff, Copy, RefreshCw, Ticket, Loader2, Check } from "lucide-
 import { formatEther, hexlify, randomBytes, keccak256, toUtf8Bytes, ZeroAddress } from "ethers"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
-import { useBuyTickets } from "@/lib/contracts/hooks"
+import { getSessionPhaseState, useBuyTickets, useSessionInfo } from "@/lib/contracts/hooks"
 import type { SessionConfigFromEvent } from "@/lib/contracts/hooks"
 
 const ConnectModal = dynamic(
@@ -24,6 +24,42 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
   const t = useT()
   const { status } = useWallet()
   const { buyTickets, loading: buyLoading, error: buyError } = useBuyTickets()
+  const { info: sessionInfo } = useSessionInfo(isOpen ? session.sessionAddress : null)
+  const resolvedSession = useMemo(() => {
+    if (!sessionInfo) return session
+
+    return {
+      ...session,
+      ticketPrice: sessionInfo.ticketPrice,
+      totalTickets: sessionInfo.totalTickets,
+      paymentToken: sessionInfo.paymentToken,
+      unlockTimestamp: sessionInfo.unlockTimestamp,
+      commitDurationSeconds: sessionInfo.commitDurationSeconds,
+      revealDurationSeconds: sessionInfo.revealDurationSeconds,
+      ticketsSold: sessionInfo.ticketsSold,
+      isSettled: sessionInfo.isSettled,
+      settlementType: sessionInfo.settlementType,
+      commitDeadline: sessionInfo.commitDeadline,
+      revealDeadline: sessionInfo.revealDeadline,
+    }
+  }, [session, sessionInfo])
+  const phase = getSessionPhaseState(
+    resolvedSession.unlockTimestamp,
+    resolvedSession.commitDeadline,
+    resolvedSession.isSettled
+  )
+  const hasInvalidSchedule =
+    !resolvedSession.isSettled &&
+    resolvedSession.unlockTimestamp === 0n &&
+    phase.isRevealPhase
+  const startsAtLabel =
+    resolvedSession.unlockTimestamp > 0n
+      ? new Date(Number(resolvedSession.unlockTimestamp) * 1000).toLocaleString()
+      : null
+  const commitDeadlineLabel =
+    resolvedSession.commitDeadline > 0n
+      ? new Date(Number(resolvedSession.commitDeadline) * 1000).toLocaleString()
+      : null
   
   // Form state
   const [quantity, setQuantity] = useState(1)
@@ -72,9 +108,9 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
   }
   
   // Calculations
-  const totalTickets = Number(session.totalTickets)
-  const ticketPriceEth = Number(formatEther(session.ticketPrice))
-  const isEth = session.paymentToken === ZeroAddress
+  const totalTickets = Number(resolvedSession.totalTickets)
+  const ticketPriceEth = Number(formatEther(resolvedSession.ticketPrice))
+  const isEth = resolvedSession.paymentToken === ZeroAddress
   const totalCost = ticketPriceEth * quantity
   const totalCostUsdt = totalCost * ethPrice
   
@@ -85,12 +121,12 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
       return
     }
     
-    if (!session || !secret || !commitment) return
+    if (!session || !secret || !commitment || !phase.isCommitPhaseActive || hasInvalidSchedule) return
 
-    const value = useBalance ? 0n : session.ticketPrice * BigInt(quantity)
+    const value = useBalance ? 0n : resolvedSession.ticketPrice * BigInt(quantity)
     
     const tx = await buyTickets(
-      session.sessionAddress,
+      resolvedSession.sessionAddress,
       quantity,
       commitment,
       useBalance,
@@ -158,6 +194,32 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
                 </span>
               </div>
             </div>
+
+            {hasInvalidSchedule && (
+              <div className="alert alert-error py-2">
+                <span className="text-sm">{t.session.invalidSchedule}</span>
+              </div>
+            )}
+
+            {!hasInvalidSchedule && phase.isUpcoming && (
+              <div className="alert alert-info py-2">
+                <span className="text-sm">
+                  {startsAtLabel
+                    ? t.session.startsAt.replace("{time}", startsAtLabel)
+                    : t.session.notStarted}
+                </span>
+              </div>
+            )}
+
+            {!hasInvalidSchedule && phase.isRevealPhase && !resolvedSession.isSettled && (
+              <div className="alert alert-warning py-2">
+                <span className="text-sm">
+                  {commitDeadlineLabel
+                    ? t.session.buyEndedAt.replace("{time}", commitDeadlineLabel)
+                    : t.session.commitEnded}
+                </span>
+              </div>
+            )}
             
             {/* Quantity */}
             <div className="form-control">
@@ -314,7 +376,14 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
             <button
               className="btn btn-primary btn-block gap-2"
               onClick={handleBuy}
-              disabled={buyLoading || !secret || !commitment || buySuccess}
+              disabled={
+                buyLoading ||
+                !secret ||
+                !commitment ||
+                buySuccess ||
+                !phase.isCommitPhaseActive ||
+                hasInvalidSchedule
+              }
             >
               {buyLoading ? (
                 <>

@@ -194,8 +194,12 @@ export const zh: Dictionary = {
     connectToBuy: "连接钱包购买",
     processing: "处理中...",
     buySuccess: "购买成功！",
+    notStarted: "尚未开始",
+    startsAt: "开始时间：{time}",
+    buyEndedAt: "购票已结束，截止于：{time}",
     commitEnded: "购票阶段已结束",
     waitingReveal: "等待开奖中...",
+    invalidSchedule: "该场次创建时没有写入有效的开始时间，链上已将购票窗口视为过期",
     sessionSettled: "本期已开奖",
     // Creator management
     creatorPanel: "创建者管理",

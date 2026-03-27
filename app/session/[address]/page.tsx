@@ -7,7 +7,12 @@ import { formatEther, ZeroAddress } from "ethers"
 import Link from "next/link"
 
 import { useT } from "@/lib/i18n/context"
-import { useActiveSessions, usePlayerTickets } from "@/lib/contracts/hooks"
+import {
+  getSessionPhaseState,
+  useActiveSessions,
+  usePlayerTickets,
+  useSessionInfo,
+} from "@/lib/contracts/hooks"
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
 import { useCountdown } from "@/hooks/use-countdown"
 import { BuyModal } from "@/components/buy-modal"
@@ -25,32 +30,82 @@ export default function SessionDetailPage() {
   
   // Fetch all sessions and find the current one
   const { sessions, loading: sessionsLoading } = useActiveSessions()
+  const { info: sessionInfo } = useSessionInfo(sessionAddress)
   const { tickets: playerTicketCount } = usePlayerTickets(sessionAddress)
   const session = useMemo(() => {
     return sessions.find(s => s.sessionAddress.toLowerCase() === sessionAddress?.toLowerCase())
   }, [sessions, sessionAddress])
+  const resolvedSession = useMemo(() => {
+    if (!session) return null
+    if (!sessionInfo) return session
+
+    return {
+      ...session,
+      ticketPrice: sessionInfo.ticketPrice,
+      totalTickets: sessionInfo.totalTickets,
+      paymentToken: sessionInfo.paymentToken,
+      unlockTimestamp: sessionInfo.unlockTimestamp,
+      commitDurationSeconds: sessionInfo.commitDurationSeconds,
+      revealDurationSeconds: sessionInfo.revealDurationSeconds,
+      ticketsSold: sessionInfo.ticketsSold,
+      isSettled: sessionInfo.isSettled,
+      settlementType: sessionInfo.settlementType,
+      commitDeadline: sessionInfo.commitDeadline,
+      revealDeadline: sessionInfo.revealDeadline,
+    }
+  }, [session, sessionInfo])
   
   // Buy modal state
   const [buyModalOpen, setBuyModalOpen] = useState(false)
+  const phase = resolvedSession
+    ? getSessionPhaseState(
+        resolvedSession.unlockTimestamp,
+        resolvedSession.commitDeadline,
+        resolvedSession.isSettled
+      )
+    : null
   
   // Countdown
+  const countdownTarget =
+    resolvedSession && phase
+      ? phase.isUpcoming
+        ? resolvedSession.unlockTimestamp
+        : phase.isCommitPhaseActive
+          ? resolvedSession.commitDeadline
+          : 0n
+      : 0n
   const endTimeMs = useMemo(() => {
-    return session?.commitDeadline && session.commitDeadline > 0n
-      ? Number(session.commitDeadline) * 1000
+    return countdownTarget > 0n
+      ? Number(countdownTarget) * 1000
       : Date.now() + 60000
-  }, [session?.commitDeadline])
+  }, [countdownTarget])
   const { days, hours, minutes, seconds } = useCountdown(endTimeMs)
   
   // Calculate values
-  const isEth = session?.paymentToken === ZeroAddress
-  const ticketPriceNum = session ? Number(formatEther(session.ticketPrice)) : 0
-  const totalTickets = session ? Number(session.totalTickets) : 0
-  const ticketsSold = session ? Number(session.ticketsSold) : 0
+  const isEth = resolvedSession?.paymentToken === ZeroAddress
+  const ticketPriceNum = resolvedSession ? Number(formatEther(resolvedSession.ticketPrice)) : 0
+  const totalTickets = resolvedSession ? Number(resolvedSession.totalTickets) : 0
+  const ticketsSold = resolvedSession ? Number(resolvedSession.ticketsSold) : 0
   
   // Check if commit phase is active
-  const now = Math.floor(Date.now() / 1000)
-  const isSettled = session ? session.isSettled : false
-  const isCommitPhaseActive = session ? !isSettled && now < Number(session.commitDeadline) : false
+  const isSettled = resolvedSession ? resolvedSession.isSettled : false
+  const isCommitPhaseActive = phase?.isCommitPhaseActive ?? false
+  const isUpcoming = phase?.isUpcoming ?? false
+  const isRevealPhase = phase?.isRevealPhase ?? false
+  const hasInvalidSchedule = Boolean(
+    resolvedSession &&
+      !resolvedSession.isSettled &&
+      resolvedSession.unlockTimestamp === 0n &&
+      isRevealPhase
+  )
+  const startsAtLabel =
+    resolvedSession && resolvedSession.unlockTimestamp > 0n
+      ? new Date(Number(resolvedSession.unlockTimestamp) * 1000).toLocaleString()
+      : null
+  const commitDeadlineLabel =
+    resolvedSession && resolvedSession.commitDeadline > 0n
+      ? new Date(Number(resolvedSession.commitDeadline) * 1000).toLocaleString()
+      : null
   
   // Loading state
   if (sessionsLoading) {
@@ -62,7 +117,7 @@ export default function SessionDetailPage() {
   }
   
   // Session not found
-  if (!session) {
+  if (!resolvedSession) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4">
         <p className="text-base-content/60">{t.session.notFound}</p>
@@ -104,7 +159,7 @@ export default function SessionDetailPage() {
                     {isEth ? t.products.ethPool : t.products.tokenPool}
                   </h1>
                   <Link 
-                    href={getExplorerAddressUrl(session.chainId, sessionAddress)}
+                    href={getExplorerAddressUrl(resolvedSession.chainId, sessionAddress)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-base-content/40 hover:text-primary flex items-center gap-1"
@@ -118,7 +173,11 @@ export default function SessionDetailPage() {
               {/* Status badge */}
               {isSettled ? (
                 <span className="badge badge-success">{t.products.settled}</span>
-              ) : !isCommitPhaseActive ? (
+              ) : hasInvalidSchedule ? (
+                <span className="badge badge-error">{t.session.commitEnded}</span>
+              ) : isUpcoming ? (
+                <span className="badge badge-info">{t.session.notStarted}</span>
+              ) : isRevealPhase ? (
                 <span className="badge badge-warning">{t.products.revealing}</span>
               ) : (
                 <span className="badge badge-primary">{t.session.active}</span>
@@ -137,10 +196,12 @@ export default function SessionDetailPage() {
             </div>
             
             {/* Countdown */}
-            {isCommitPhaseActive && (
+            {(isUpcoming || isCommitPhaseActive) && (
               <div className="flex items-center justify-center gap-2 mt-4">
                 <Clock className="h-4 w-4 text-base-content/40" />
-                <span className="text-sm text-base-content/40">{t.products.countdown}</span>
+                <span className="text-sm text-base-content/40">
+                  {isUpcoming ? t.session.notStarted : t.products.countdown}
+                </span>
                 <div className="flex items-center gap-1 font-display">
                   {days > 0 && (
                     <>
@@ -202,16 +263,48 @@ export default function SessionDetailPage() {
           </div>
         )}
         
+        {/* Session starts later */}
+        {isUpcoming && !isSettled && (
+          <div className="card bg-base-200 border border-info/30 mt-4">
+            <div className="card-body text-center py-8">
+              <Clock className="h-12 w-12 mx-auto text-info mb-4" />
+              <p className="text-info text-lg font-bold">{t.session.notStarted}</p>
+              {startsAtLabel && (
+                <p className="text-sm text-base-content/60 mt-2">
+                  {t.session.startsAt.replace("{time}", startsAtLabel)}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Misconfigured session timing */}
+        {hasInvalidSchedule && (
+          <div className="card bg-base-200 border border-error/30 mt-4">
+            <div className="card-body text-center py-8">
+              <Clock className="h-12 w-12 mx-auto text-error mb-4" />
+              <p className="text-error text-lg font-bold">{t.session.invalidSchedule}</p>
+              {commitDeadlineLabel && (
+                <p className="text-xs text-base-content/40 mt-4">
+                  Commit Deadline: {commitDeadlineLabel}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Session ended message */}
-        {!isCommitPhaseActive && !isSettled && (
+        {!hasInvalidSchedule && !isUpcoming && !isCommitPhaseActive && !isSettled && (
           <div className="card bg-base-200 border border-warning/30 mt-4">
             <div className="card-body text-center py-8">
               <Clock className="h-12 w-12 mx-auto text-warning mb-4" />
               <p className="text-warning text-lg font-bold">{t.session.commitEnded}</p>
               <p className="text-sm text-base-content/60 mt-2">{t.session.waitingReveal}</p>
-              <p className="text-xs text-base-content/40 mt-4">
-                Commit Deadline: {new Date(Number(session.commitDeadline) * 1000).toLocaleString()}
-              </p>
+              {commitDeadlineLabel && (
+                <p className="text-xs text-base-content/40 mt-4">
+                  Commit Deadline: {commitDeadlineLabel}
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -225,25 +318,25 @@ export default function SessionDetailPage() {
         )}
         
         {/* Creator management panel */}
-        {session && (
-          <CreatorPanel session={session} ticketsSold={ticketsSold} />
+        {resolvedSession && (
+          <CreatorPanel session={resolvedSession} ticketsSold={ticketsSold} />
         )}
         
         {/* Player claim panel - shows when unsold settlement is complete */}
-        {session && (
+        {resolvedSession && (
           <PlayerClaimPanel 
-            session={session} 
+            session={resolvedSession} 
             playerTicketCount={Number(playerTicketCount)}
           />
         )}
       </div>
       
       {/* Buy Modal */}
-      {session && (
+      {resolvedSession && (
         <BuyModal
           isOpen={buyModalOpen}
           onClose={() => setBuyModalOpen(false)}
-          session={session}
+          session={resolvedSession}
           ethPrice={ETH_USDT_RATE}
         />
       )}

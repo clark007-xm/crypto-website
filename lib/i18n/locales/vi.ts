@@ -194,8 +194,12 @@ export const vi: Dictionary = {
     connectToBuy: "K\u1EBFt n\u1ED1i \u0111\u1EC3 mua",
     processing: "\u0110ang x\u1EED l\u00FD...",
     buySuccess: "Mua th\u00E0nh c\u00F4ng!",
+    notStarted: "Ch\u01B0a b\u1EAFt \u0111\u1EA7u",
+    startsAt: "B\u1EAFt \u0111\u1EA7u l\u00FAc: {time}",
+    buyEndedAt: "\u0110\u1EE3t b\u00E1n v\u00E9 \u0111\u00E3 k\u1EBFt th\u00FAc l\u00FAc: {time}",
     commitEnded: "Giai \u0111o\u1EA1n mua \u0111\u00E3 k\u1EBFt th\u00FAc",
     waitingReveal: "\u0110ang ch\u1EDD m\u1EDF k\u1EBFt qu\u1EA3...",
+    invalidSchedule: "Phi\u00EAn n\u00E0y \u0111\u01B0\u1EE3c t\u1EA1o m\u00E0 kh\u00F4ng c\u00F3 th\u1EDDi gian b\u1EAFt \u0111\u1EA7u h\u1EE3p l\u1EC7 n\u00EAn h\u1EE3p \u0111\u1ED3ng \u0111\u00E3 xem c\u1EEDa s\u1ED5 mua v\u00E9 l\u00E0 h\u1EBFt h\u1EA1n.",
     sessionSettled: "Phi\u00EAn \u0111\u00E3 k\u1EBFt th\u00FAc",
     // Creator management
     creatorPanel: "Qu\u1EA3n l\u00FD t\u1EA1o phi\u00EAn",
