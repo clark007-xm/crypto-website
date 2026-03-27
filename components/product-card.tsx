@@ -30,7 +30,7 @@ export function ProductCard({
   isHot,
   period,
 }: ProductCardProps) {
-  const { hours, minutes, seconds } = useCountdown(endTime)
+  const { hours, minutes, seconds } = useCountdown(endTime.getTime())
   const t = useT()
   const { status } = useWallet()
   const [modalOpen, setModalOpen] = useState(false)

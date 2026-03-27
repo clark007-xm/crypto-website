@@ -6,6 +6,7 @@ import { useCountdown } from "@/hooks/use-countdown"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import { type SessionConfigFromEvent } from "@/lib/contracts/hooks"
+import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
 import { ConnectModal } from "./connect-modal"
 import { formatEther, ZeroAddress } from "ethers"
 import Link from "next/link"
@@ -38,9 +39,7 @@ export function SessionCard({ session }: SessionCardProps) {
   const ticketPriceNum = Number(formatEther(session.ticketPrice))
   
   const totalTickets = Number(session.totalTickets)
-  // Note: ticketsSold needs to be fetched from contract, for now show 0
-  // We'll add real-time sold count later
-  const ticketsSold = 0 // TODO: fetch from nextTicketIndex
+  const ticketsSold = Number(session.ticketsSold)
   const progress = totalTickets > 0 ? (ticketsSold / totalTickets) * 100 : 0
   const remaining = totalTickets - ticketsSold
   
@@ -50,8 +49,8 @@ export function SessionCard({ session }: SessionCardProps) {
 
   // Check if commit phase is over
   const now = Math.floor(Date.now() / 1000)
-  const isCommitPhaseActive = now < Number(session.commitDeadline)
-  const isSettled = now > Number(session.revealDeadline)
+  const isSettled = session.isSettled
+  const isCommitPhaseActive = !isSettled && now < Number(session.commitDeadline)
 
   // Short session address for display
   const shortAddress = `${session.sessionAddress.slice(0, 6)}...${session.sessionAddress.slice(-4)}`
@@ -74,8 +73,9 @@ export function SessionCard({ session }: SessionCardProps) {
                 {isEth ? t.products.ethPool : t.products.tokenPool}
               </h3>
               <Link 
-                href={`https://sepolia.etherscan.io/address/${session.sessionAddress}`}
+                href={getExplorerAddressUrl(session.chainId, session.sessionAddress)}
                 target="_blank"
+                rel="noopener noreferrer"
                 className="text-xs text-base-content/40 hover:text-primary flex items-center gap-1"
               >
                 {shortAddress}

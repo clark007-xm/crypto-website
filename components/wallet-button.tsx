@@ -6,6 +6,7 @@ import Link from "next/link"
 import { useWallet } from "@/lib/wallet/context"
 import { useT } from "@/lib/i18n/context"
 import { useIsPartner, usePartnerDeposit } from "@/lib/contracts/hooks"
+import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
 import { formatEther } from "ethers"
 import { ConnectModal } from "./connect-modal"
 
@@ -194,7 +195,7 @@ export function WalletButton() {
           </button>
           <a
             className="btn btn-ghost btn-sm justify-start w-full gap-3 font-normal"
-            href={address ? `https://etherscan.io/address/${address}` : "#"}
+            href={address ? getExplorerAddressUrl(chainId, address) : "#"}
             target="_blank"
             rel="noopener noreferrer"
           >

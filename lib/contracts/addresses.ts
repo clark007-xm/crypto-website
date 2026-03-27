@@ -43,3 +43,19 @@ export function hasDeployedContracts(chainId: number | null): boolean {
   if (!addrs) return false
   return addrs.factory !== "0x0000000000000000000000000000000000000000"
 }
+
+const EXPLORER_BASE_URLS: Record<number, string> = {
+  1: "https://etherscan.io",
+  11155111: "https://sepolia.etherscan.io",
+}
+
+export function getExplorerBaseUrl(chainId: number | null): string {
+  if (chainId && EXPLORER_BASE_URLS[chainId]) {
+    return EXPLORER_BASE_URLS[chainId]
+  }
+  return EXPLORER_BASE_URLS[1]
+}
+
+export function getExplorerAddressUrl(chainId: number | null, address: string): string {
+  return `${getExplorerBaseUrl(chainId)}/address/${address}`
+}

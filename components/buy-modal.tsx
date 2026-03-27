@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react"
 import { X, Eye, EyeOff, Copy, RefreshCw, Ticket, Loader2, Check } from "lucide-react"
-import { formatEther, hexlify, randomBytes, keccak256, toUtf8Bytes } from "ethers"
+import { formatEther, hexlify, randomBytes, keccak256, toUtf8Bytes, ZeroAddress } from "ethers"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import { useBuyTickets } from "@/lib/contracts/hooks"
@@ -70,7 +70,7 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
   // Calculations
   const totalTickets = Number(session.totalTickets)
   const ticketPriceEth = Number(formatEther(session.ticketPrice))
-  const isEth = session.paymentToken === "0x0000000000000000000000000000000000000000"
+  const isEth = session.paymentToken === ZeroAddress
   const totalCost = ticketPriceEth * quantity
   const totalCostUsdt = totalCost * ethPrice
   
@@ -82,19 +82,7 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
     }
     
     if (!session || !secret || !commitment) return
-    
-    const now = Math.floor(Date.now() / 1000)
-    console.log("[v0] handleBuy session data:", {
-      sessionAddress: session.sessionAddress,
-      now,
-      nowDate: new Date(now * 1000).toISOString(),
-      commitDeadline: session.commitDeadline.toString(),
-      commitDeadlineDate: new Date(Number(session.commitDeadline) * 1000).toISOString(),
-      unlockTimestamp: session.unlockTimestamp.toString(),
-      commitDurationSeconds: session.commitDurationSeconds.toString(),
-      isCommitPhaseActive: now < Number(session.commitDeadline),
-    })
-    
+
     const value = useBalance ? 0n : session.ticketPrice * BigInt(quantity)
     
     const tx = await buyTickets(
@@ -108,7 +96,9 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
     if (tx) {
       setBuySuccess(true)
       const secretsKey = `onetap_secrets_${session.sessionAddress}`
-      const existingSecrets = JSON.parse(localStorage.getItem(secretsKey) || "[]")
+      const storedSecrets = localStorage.getItem(secretsKey)
+      const parsedSecrets = storedSecrets ? JSON.parse(storedSecrets) : []
+      const existingSecrets = Array.isArray(parsedSecrets) ? parsedSecrets : []
       existingSecrets.push({ secret, commitment, quantity, timestamp: Date.now() })
       localStorage.setItem(secretsKey, JSON.stringify(existingSecrets))
       
@@ -124,7 +114,7 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
   return (
     <>
       <ConnectModal 
-        isOpen={connectModalOpen} 
+        open={connectModalOpen} 
         onClose={() => setConnectModalOpen(false)} 
       />
       

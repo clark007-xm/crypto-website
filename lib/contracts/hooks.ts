@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Contract, formatUnits, parseUnits, ZeroAddress } from "ethers"
-import type { ContractTransactionResponse, JsonRpcProvider } from "ethers"
+import type { ContractTransactionResponse } from "ethers"
 import { useWallet } from "@/lib/wallet/context"
 import { useRpc } from "@/lib/rpc/context"
 import { ERC20_ABI, FACTORY_ABI, SESSION_ABI, TREASURY_ABI } from "./abis"
 import { getAddresses, hasDeployedContracts } from "./addresses"
 import { getMaxBlockRange } from "./config"
+
+const REQUIRED_PARTNER_DEPOSIT = 100000000000000000n
 
 /* ════════════════════════════════════════════════════════════════════════════
  *  ERC-20 / USDT Hooks
@@ -164,11 +166,11 @@ export function useFactoryContractReadOnly() {
   const { chainId: walletChainId } = useWallet()
   const { readProvider, chain } = useRpc()
 
-  // Convert RPC chain string to numeric chainId
   const rpcChainId = chain === "sepolia" ? 11155111 : 1
-
-  // Use wallet chainId if connected, otherwise use RPC chainId
-  const chainId = walletChainId ?? rpcChainId
+  const chainId =
+    walletChainId && hasDeployedContracts(walletChainId)
+      ? walletChainId
+      : rpcChainId
 
   return useMemo(() => {
     if (!readProvider || !chainId) return null
@@ -185,8 +187,8 @@ export function useTreasuryContract() {
   return useMemo(() => {
     if (!readProvider || !chainId) return null
     if (!hasDeployedContracts(chainId)) return null
-    const { factory } = getAddresses(chainId)
-    return new Contract(factory, FACTORY_ABI, readProvider)
+    const { treasury } = getAddresses(chainId)
+    return new Contract(treasury, TREASURY_ABI, readProvider)
   }, [readProvider, chainId])
 }
 
@@ -215,18 +217,14 @@ export function usePartnerDeposit() {
     }
     setLoading(true)
     try {
-      // Get balance using balances(address) - ETH balance in Treasury
       const bal = (await currentTreasury.balances(address)) as bigint
-      // Required deposit is 0.1 ETH (100000000000000000 wei)
-      const required = 100000000000000000n // 0.1 ETH in wei
       setBalance(bal)
-      setRequiredDeposit(required)
+      setRequiredDeposit(REQUIRED_PARTNER_DEPOSIT)
       setChecked(true)
       lastCheckKey.current = `${address}-${chainId}`
     } catch {
-      // Even on error, set a default required deposit so UI can show warning
       setBalance(0n)
-      setRequiredDeposit(100000000000000000n) // 0.1 ETH fallback
+      setRequiredDeposit(REQUIRED_PARTNER_DEPOSIT)
       setChecked(true)
     } finally {
       setLoading(false)
@@ -242,7 +240,10 @@ export function usePartnerDeposit() {
       return
     }
     
-    if (!treasury) return
+    if (!treasury) {
+      setChecked(false)
+      return
+    }
     
     const key = address && chainId ? `${address}-${chainId}` : null
     if (key && lastCheckKey.current !== key) {
@@ -419,13 +420,9 @@ export function useCreateSession() {
         const tx = await factoryContract.createSession(sessionConfig)
         const receipt = await tx.wait()
 
-        // Parse the SessionCreated event to get the session address
-        const event = receipt.logs.find((log: { topics: string[] }) => {
+        const event = receipt.logs.find((log: (typeof receipt.logs)[number]) => {
           try {
-            const parsed = factoryContract.interface.parseLog({
-              topics: log.topics as string[],
-              data: log.data,
-            })
+            const parsed = factoryContract.interface.parseLog(log)
             return parsed?.name === "SessionCreated"
           } catch {
             return false
@@ -433,12 +430,9 @@ export function useCreateSession() {
         })
 
         if (event) {
-          const parsed = factoryContract.interface.parseLog({
-            topics: event.topics as string[],
-            data: event.data,
-          })
-          const sessionAddress = parsed?.args?.session as string
-          return sessionAddress
+          const parsed = factoryContract.interface.parseLog(event)
+          const sessionAddress = parsed?.args?.session
+          return typeof sessionAddress === "string" ? sessionAddress : null
         }
 
         return null
@@ -457,6 +451,7 @@ export function useCreateSession() {
 
 /** SessionConfig from event - matches the Solidity struct */
 export interface SessionConfigFromEvent {
+  chainId: number
   sessionAddress: string
   creator: string
   admin: string
@@ -472,138 +467,141 @@ export interface SessionConfigFromEvent {
   commitDurationSeconds: bigint
   revealDurationSeconds: bigint
   unlockTimestamp: bigint
+  ticketsSold: bigint
+  isSettled: boolean
   // Computed fields
   commitDeadline: bigint
   revealDeadline: bigint
 }
 
 export function useActiveSessions() {
-  // Use read-only factory that doesn't require wallet connection
   const factory = useFactoryContractReadOnly()
+  const { chain } = useRpc()
   const [sessions, setSessions] = useState<SessionConfigFromEvent[]>([])
   const [loading, setLoading] = useState(false)
-  const [fetched, setFetched] = useState(false)
 
   const factoryRef = useRef(factory)
   factoryRef.current = factory
+  const activeChainId = chain === "sepolia" ? 11155111 : 1
 
   const refresh = useCallback(async () => {
     const currentFactory = factoryRef.current
     if (!currentFactory) {
-      // Don't set fetched=true here, wait for factory to be available
       setSessions([])
       return
     }
+
     setLoading(true)
     try {
-      // Query SessionCreated events to get all session data
       const provider = currentFactory.runner?.provider
       if (!provider) {
         setSessions([])
         return
       }
+
       const currentBlock = await provider.getBlockNumber()
-      
-      // Only query blocks within max commit duration (15 days + buffer)
+      const { deployBlock } = getAddresses(activeChainId)
       const maxBlockRange = getMaxBlockRange()
-      const startBlock = Math.max(0, currentBlock - maxBlockRange)
-      
-      // Query events in batches (RPC limits to ~10000 blocks per query)
+      const startBlock = Math.max(deployBlock, currentBlock - maxBlockRange)
       const maxBlocksPerQuery = 9000
       const filter = currentFactory.filters.SessionCreated()
       const allEvents: Awaited<ReturnType<typeof currentFactory.queryFilter>> = []
-      
+
       let fromBlock = startBlock
-      while (fromBlock < currentBlock) {
-        const toBlock = Math.min(fromBlock + maxBlocksPerQuery, currentBlock)
+      while (fromBlock <= currentBlock) {
+        const toBlock = Math.min(fromBlock + maxBlocksPerQuery - 1, currentBlock)
         const batchEvents = await currentFactory.queryFilter(filter, fromBlock, toBlock)
         allEvents.push(...batchEvents)
         fromBlock = toBlock + 1
       }
-      
-      const events = allEvents
-      
-      // Extract session config from events
-      const sessionConfigs: SessionConfigFromEvent[] = await Promise.all(
-        events.map(async (event) => {
-          const args = event.args
-          const sessionAddress = args?.[1] as string // indexed session address
-          const config = args?.[2] // SessionConfig struct
-          
-          // Config struct order from docs:
-          // [0] admin, [1] creator, [2] treasury, [3] sessionCommitment, 
-          // [4] paymentToken, [5] ticketPrice, [6] totalTickets,
-          // [7] partnerShareBps, [8] platformFeeBps, 
-          // [9] unsoldTicketsPartnerDepositSlashBps, [10] creatorAbsentPartnerDepositSlashBps,
-          // [11] commitDurationSeconds, [12] revealDurationSeconds, [13] unlockTimestamp
-          
-          const commitDurationSeconds = BigInt(config?.[11] ?? 0)
-          const revealDurationSeconds = BigInt(config?.[12] ?? 0)
-          const unlockTimestampFromEvent = BigInt(config?.[13] ?? 0)
-          
-          // Read actual state from session contract to get correct unlockTimestamp
-          // When unlockTimestamp=0 in config, the contract sets it to block.timestamp during initialize()
-          let unlockTimestamp = unlockTimestampFromEvent
-          let commitDeadline = 0n
-          let revealDeadline = 0n
-          
+
+      const sessionConfigs = await Promise.all(
+        allEvents.map(async (event) => {
           try {
-            // Try reading from session contract's config() which has the actual unlockTimestamp
+            const parsed = currentFactory.interface.parseLog(event)
+            if (!parsed || parsed.name !== "SessionCreated") {
+              return null
+            }
+
+            const sessionAddress = parsed.args?.[1]
+            const config = parsed.args?.[2] as readonly unknown[] | undefined
+            if (typeof sessionAddress !== "string" || !config) {
+              return null
+            }
+
+            const commitDurationSeconds = BigInt((config[11] as bigint | number | string | undefined) ?? 0)
+            const revealDurationSeconds = BigInt((config[12] as bigint | number | string | undefined) ?? 0)
+            const unlockTimestampFromEvent = BigInt((config[13] as bigint | number | string | undefined) ?? 0)
             const sessionContract = new Contract(sessionAddress, SESSION_ABI, provider)
-            const sessionConfig = await sessionContract.config()
-            // config returns struct: [admin, creator, sessionCommitment, treasury, paymentToken, ticketPrice, totalTickets, partnerShareBps, platformFeeBps, unsoldSlash, creatorAbsentSlash, commitDuration, revealDuration, unlockTimestamp]
-            unlockTimestamp = BigInt(sessionConfig[13] ?? 0)
-            commitDeadline = unlockTimestamp + commitDurationSeconds
-            revealDeadline = commitDeadline + revealDurationSeconds
+
+            let unlockTimestamp = unlockTimestampFromEvent
+            try {
+              unlockTimestamp = BigInt((await sessionContract.unlockTimestamp()) as bigint)
+            } catch {
+              if (unlockTimestamp === 0n) {
+                const block = await event.getBlock()
+                unlockTimestamp = BigInt(block.timestamp)
+              }
+            }
+
+            if (unlockTimestamp === 0n) {
+              const block = await event.getBlock()
+              unlockTimestamp = BigInt(block.timestamp)
+            }
+
+            const [ticketsSold, isSettled] = await Promise.all([
+              sessionContract.nextTicketIndex().catch(() => 0n),
+              sessionContract.isSettled().catch(() => false),
+            ])
+
+            const commitDeadline = unlockTimestamp + commitDurationSeconds
+            const revealDeadline = commitDeadline + revealDurationSeconds
+
+            return {
+              chainId: activeChainId,
+              sessionAddress,
+              admin: config[0] as string,
+              creator: config[1] as string,
+              sessionCommitment: config[2] as string,
+              treasury: config[3] as string,
+              paymentToken: config[4] as string,
+              ticketPrice: BigInt((config[5] as bigint | number | string | undefined) ?? 0),
+              totalTickets: BigInt((config[6] as bigint | number | string | undefined) ?? 0),
+              partnerShareBps: Number(config[7] ?? 0),
+              platformFeeBps: Number(config[8] ?? 0),
+              unsoldTicketsPartnerDepositSlashBps: Number(config[9] ?? 0),
+              creatorAbsentPartnerDepositSlashBps: Number(config[10] ?? 0),
+              commitDurationSeconds,
+              revealDurationSeconds,
+              unlockTimestamp,
+              ticketsSold: BigInt(ticketsSold),
+              isSettled: Boolean(isSettled),
+              commitDeadline,
+              revealDeadline,
+            } satisfies SessionConfigFromEvent
           } catch {
-            // Fallback: use event block timestamp
-            const block = await event.getBlock()
-            const startTime = unlockTimestampFromEvent === 0n ? BigInt(block.timestamp) : unlockTimestampFromEvent
-            unlockTimestamp = startTime
-            commitDeadline = startTime + commitDurationSeconds
-            revealDeadline = startTime + commitDurationSeconds + revealDurationSeconds
-          }
-          
-          return {
-            sessionAddress,
-            admin: config?.[0] as string,
-            creator: config?.[1] as string,
-            sessionCommitment: config?.[2] as string,
-            treasury: config?.[3] as string,
-            paymentToken: config?.[4] as string,
-            ticketPrice: BigInt(config?.[5] ?? 0),
-            totalTickets: BigInt(config?.[6] ?? 0),
-            partnerShareBps: Number(config?.[7] ?? 0),
-            platformFeeBps: Number(config?.[8] ?? 0),
-            unsoldTicketsPartnerDepositSlashBps: Number(config?.[9] ?? 0),
-            creatorAbsentPartnerDepositSlashBps: Number(config?.[10] ?? 0),
-            commitDurationSeconds,
-            revealDurationSeconds,
-            unlockTimestamp,
-            // Computed deadlines
-            commitDeadline,
-            revealDeadline,
+            return null
           }
         })
       )
-      
-      const validConfigs = sessionConfigs.filter(s => s.sessionAddress)
-      
-      // Reverse to show newest first
+
+      const validConfigs = sessionConfigs.filter(
+        (session): session is SessionConfigFromEvent => Boolean(session?.sessionAddress)
+      )
+
       setSessions(validConfigs.reverse())
     } catch {
       setSessions([])
     } finally {
       setLoading(false)
-      setFetched(true)
     }
-  }, [])
+  }, [activeChainId])
 
   useEffect(() => {
-    if (factory && !fetched) {
+    if (factory) {
       refresh()
     }
-  }, [factory, fetched, refresh])
+  }, [factory, refresh])
 
   return { sessions, loading, refresh }
 }
@@ -652,84 +650,47 @@ export function useSessionInfo(sessionAddress: string | null) {
     }
     setLoading(true)
     try {
-      // Debug: Test each method individually to find which ones exist
-      console.log("[v0] Testing Session methods for:", sessionAddress)
-      
-      // Test commitDeadline
-      let commitDeadline = 0n
-      try {
-        commitDeadline = await currentSession.commitDeadline() as bigint
-        console.log("[v0] commitDeadline:", commitDeadline.toString())
-      } catch (e) { console.log("[v0] commitDeadline FAILED:", e) }
-      
-      // Test revealDeadline
-      let revealDeadline = 0n
-      try {
-        revealDeadline = await currentSession.revealDeadline() as bigint
-        console.log("[v0] revealDeadline:", revealDeadline.toString())
-      } catch (e) { console.log("[v0] revealDeadline FAILED:", e) }
-      
-      // Test isSettled
-      let isSettled = false
-      try {
-        isSettled = await currentSession.isSettled() as boolean
-        console.log("[v0] isSettled:", isSettled)
-      } catch (e) { console.log("[v0] isSettled FAILED:", e) }
-      
-      // Test winner
-      let winner = ZeroAddress
-      try {
-        winner = await currentSession.winner() as string
-        console.log("[v0] winner:", winner)
-      } catch (e) { console.log("[v0] winner FAILED:", e) }
-      
-      // Test nextTicketIndex
-      let nextTicketIndex = 0n
-      try {
-        nextTicketIndex = await currentSession.nextTicketIndex() as bigint
-        console.log("[v0] nextTicketIndex:", nextTicketIndex.toString())
-      } catch (e) { console.log("[v0] nextTicketIndex FAILED:", e) }
-      
-      // Test config
-      let configResult: unknown = null
-      try {
-        configResult = await currentSession.config()
-        console.log("[v0] config:", configResult)
-      } catch (e) { console.log("[v0] config FAILED:", e) }
+      const [
+        ticketPrice,
+        totalTickets,
+        ticketsSold,
+        paymentToken,
+        unlockTimestamp,
+        commitDurationSeconds,
+        revealDurationSeconds,
+        isSettled,
+      ] = await Promise.all([
+        currentSession.ticketPrice().catch(() => 0n),
+        currentSession.totalTickets().catch(() => 0n),
+        currentSession.nextTicketIndex().catch(() => 0n),
+        currentSession.paymentToken().catch(() => ZeroAddress),
+        currentSession.unlockTimestamp().catch(() => 0n),
+        currentSession.commitDurationSeconds().catch(() => 0n),
+        currentSession.revealDurationSeconds().catch(() => 0n),
+        currentSession.isSettled().catch(() => false),
+      ])
 
-      // If config worked, extract values; otherwise use defaults
-      let ticketPrice = 0n
-      let totalTickets = 0n
-      let paymentToken = ZeroAddress
-      
-      if (configResult && Array.isArray(configResult)) {
-        paymentToken = configResult[4] as string
-        ticketPrice = configResult[5] as bigint
-        totalTickets = configResult[6] as bigint
-      }
-      
-      // Determine phases based on time
+      const commitDeadline = BigInt(unlockTimestamp) + BigInt(commitDurationSeconds)
+      const revealDeadline = commitDeadline + BigInt(revealDurationSeconds)
       const now = BigInt(Math.floor(Date.now() / 1000))
       const isCommitPhaseActive = commitDeadline > 0n && now < commitDeadline && !isSettled
       const canSettle = revealDeadline > 0n && now > revealDeadline && !isSettled
 
       setInfo({
         address: sessionAddress,
-        ticketPrice,
-        totalTickets,
-        ticketsSold: nextTicketIndex,
-        paymentToken,
-        isSettled,
-        winner,
+        ticketPrice: BigInt(ticketPrice),
+        totalTickets: BigInt(totalTickets),
+        ticketsSold: BigInt(ticketsSold),
+        paymentToken: String(paymentToken),
+        isSettled: Boolean(isSettled),
+        winner: ZeroAddress,
         commitDeadline,
         revealDeadline,
         isCommitPhaseActive,
         canSettle,
       })
       lastFetchedAddress.current = sessionAddress
-      console.log("[v0] useSessionInfo complete for:", sessionAddress)
-    } catch (err) {
-      console.log("[v0] useSessionInfo error:", err)
+    } catch {
       setInfo(null)
     } finally {
       setLoading(false)
@@ -763,7 +724,7 @@ export function usePlayerTickets(sessionAddress: string | null) {
     }
     setLoading(true)
     try {
-      const result = (await currentSession.getPlayerTickets(address)) as bigint
+      const result = (await currentSession.ticketCounts(address)) as bigint
       setTickets(result)
       lastFetchKey.current = `${sessionAddress}-${address}`
     } catch {
@@ -979,8 +940,8 @@ export function useClaimPrincipalAndPenalty() {
 
 export function useSessionEvents(
   sessionAddress: string | null,
-  onTicketsPurchased?: (buyer: string, recipient: string, count: bigint, total: bigint) => void,
-  onSettled?: (winner: string, prize: bigint) => void,
+  onTicketsPurchased?: (player: string, quantity: bigint, nextIndex: bigint) => void,
+  onSettled?: (settlementType: number) => void,
 ) {
   const session = useSessionContract(sessionAddress)
 
@@ -992,11 +953,11 @@ export function useSessionEvents(
   useEffect(() => {
     if (!session) return
 
-    const handleTicketsPurchased = (buyer: string, recipient: string, count: bigint, total: bigint) => {
-      onTicketsPurchasedRef.current?.(buyer, recipient, count, total)
+    const handleTicketsPurchased = (player: string, quantity: bigint, nextIndex: bigint) => {
+      onTicketsPurchasedRef.current?.(player, quantity, nextIndex)
     }
-    const handleSettled = (winner: string, prize: bigint) => {
-      onSettledRef.current?.(winner, prize)
+    const handleSettled = (settlementType: bigint) => {
+      onSettledRef.current?.(Number(settlementType))
     }
 
     session.on("TicketsPurchased", handleTicketsPurchased)

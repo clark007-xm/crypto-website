@@ -1,8 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { ArrowLeft, AlertTriangle, CheckCircle, Copy, Check, Eye, EyeOff, Wallet } from "lucide-react"
 import { parseEther, formatEther, keccak256, toUtf8Bytes } from "ethers"
 import { Navbar } from "@/components/navbar"
@@ -19,11 +18,10 @@ import {
 
 export default function CreatePage() {
   const t = useT()
-  const router = useRouter()
-  const { status, address } = useWallet()
+  const { status } = useWallet()
   const { isPartner, loading: partnerLoading, checked: partnerChecked } = useIsPartner()
   const { createSession, loading: creating, error: createError } = useCreateSession()
-  const { balance: depositBalance, requiredDeposit, isInsufficient, shortfall, loading: depositLoading, checked: depositChecked, refresh: refreshDeposit } = usePartnerDeposit()
+  const { balance: depositBalance, isInsufficient, shortfall, loading: depositLoading, checked: depositChecked, refresh: refreshDeposit } = usePartnerDeposit()
   const { deposit: doDeposit, loading: depositing, error: depositError } = useDepositToTreasury()
 
   // Form state
@@ -79,19 +77,23 @@ export default function CreatePage() {
   // Handle deposit (ETH)
   const handleDeposit = async () => {
     if (!depositAmount) return
-    const amountWei = parseEther(depositAmount) // ETH uses 18 decimals
-    const success = await doDeposit(amountWei)
-    if (success) {
-      setDepositSuccess(true)
-      setDepositAmount("")
-      refreshDeposit()
-      setTimeout(() => setDepositSuccess(false), 3000)
+    try {
+      const amountWei = parseEther(depositAmount)
+      const success = await doDeposit(amountWei)
+      if (success) {
+        setDepositSuccess(true)
+        setDepositAmount("")
+        refreshDeposit()
+        setTimeout(() => setDepositSuccess(false), 3000)
+      }
+    } catch {
+      alert(t.create.depositFailed)
     }
   }
 
   // Calculate preview values
   const priceNum = parseFloat(ticketPrice) || 0
-  const ticketsNum = parseInt(totalTickets) || 0
+  const ticketsNum = parseInt(totalTickets, 10) || 0
   const partnerShareNum = parseFloat(partnerShare) || 0
   const platformFeeNum = parseFloat(platformFee) || 0
   const totalPoolEth = priceNum * ticketsNum
@@ -121,14 +123,22 @@ export default function CreatePage() {
     }
 
     // commitment is already computed from secret
+    let parsedTicketPrice: bigint
+    try {
+      parsedTicketPrice = parseEther(ticketPrice)
+    } catch {
+      alert(t.create.failed)
+      return
+    }
+
     const sessionAddress = await createSession({
       sessionCommitment: commitment,
-      ticketPrice: parseEther(ticketPrice), // ETH uses 18 decimals
-      totalTickets: parseInt(totalTickets),
-      partnerShareBps: Math.round(partnerShareNum * 100), // Convert percentage to basis points
+      ticketPrice: parsedTicketPrice,
+      totalTickets: parseInt(totalTickets, 10),
+      partnerShareBps: Math.round(partnerShareNum * 100),
       platformFeeBps: Math.round(platformFeeNum * 100),
-      commitDurationSeconds: commitDurationSeconds,
-      revealDurationSeconds: revealDurationSeconds,
+      commitDurationSeconds,
+      revealDurationSeconds,
     })
 
     if (sessionAddress) {

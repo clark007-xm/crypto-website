@@ -7,8 +7,8 @@ import { formatEther, ZeroAddress } from "ethers"
 import Link from "next/link"
 
 import { useT } from "@/lib/i18n/context"
-import { useWallet } from "@/lib/wallet/context"
-import { useActiveSessions } from "@/lib/contracts/hooks"
+import { useActiveSessions, usePlayerTickets } from "@/lib/contracts/hooks"
+import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
 import { useCountdown } from "@/hooks/use-countdown"
 import { BuyModal } from "@/components/buy-modal"
 import { CreatorPanel } from "@/components/creator-panel"
@@ -22,10 +22,10 @@ export default function SessionDetailPage() {
   const router = useRouter()
   const sessionAddress = params.address as string
   const t = useT()
-  const { status, address } = useWallet()
   
   // Fetch all sessions and find the current one
   const { sessions, loading: sessionsLoading } = useActiveSessions()
+  const { tickets: playerTicketCount } = usePlayerTickets(sessionAddress)
   const session = useMemo(() => {
     return sessions.find(s => s.sessionAddress.toLowerCase() === sessionAddress?.toLowerCase())
   }, [sessions, sessionAddress])
@@ -45,13 +45,12 @@ export default function SessionDetailPage() {
   const isEth = session?.paymentToken === ZeroAddress
   const ticketPriceNum = session ? Number(formatEther(session.ticketPrice)) : 0
   const totalTickets = session ? Number(session.totalTickets) : 0
-  // TODO: fetch actual ticketsSold from contract (nextTicketIndex)
-  const ticketsSold = 0
+  const ticketsSold = session ? Number(session.ticketsSold) : 0
   
   // Check if commit phase is active
   const now = Math.floor(Date.now() / 1000)
-  const isCommitPhaseActive = session ? now < Number(session.commitDeadline) : false
-  const isSettled = session ? now > Number(session.revealDeadline) : false
+  const isSettled = session ? session.isSettled : false
+  const isCommitPhaseActive = session ? !isSettled && now < Number(session.commitDeadline) : false
   
   // Loading state
   if (sessionsLoading) {
@@ -105,8 +104,9 @@ export default function SessionDetailPage() {
                     {isEth ? t.products.ethPool : t.products.tokenPool}
                   </h1>
                   <Link 
-                    href={`https://sepolia.etherscan.io/address/${sessionAddress}`}
+                    href={getExplorerAddressUrl(session.chainId, sessionAddress)}
                     target="_blank"
+                    rel="noopener noreferrer"
                     className="text-sm text-base-content/40 hover:text-primary flex items-center gap-1"
                   >
                     {shortAddress}
@@ -233,7 +233,7 @@ export default function SessionDetailPage() {
         {session && (
           <PlayerClaimPanel 
             session={session} 
-            playerTicketCount={0} // TODO: fetch actual player ticket count
+            playerTicketCount={Number(playerTicketCount)}
             isUnsoldSettled={false} // TODO: fetch actual settlement status
           />
         )}

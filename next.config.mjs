@@ -2,9 +2,6 @@
 const isProd = process.env.NODE_ENV === "production"
 
 const nextConfig = {
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   images: {
     unoptimized: true,
   },

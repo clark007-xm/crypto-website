@@ -43,34 +43,39 @@ export const FACTORY_ABI = [
 /* ── CommitRevealSession ── */
 export const SESSION_ABI = [
   // Read - State variables (from ABI)
-  "function commitDeadline() view returns (uint256)",
-  "function config() view returns (tuple(address admin, address creator, bytes32 sessionCommitment, address treasury, address paymentToken, uint256 ticketPrice, uint256 totalTickets, uint16 partnerShareBps, uint16 platformFeeBps, uint16 unsoldTicketsPartnerDepositSlashBps, uint16 creatorAbsentPartnerDepositSlashBps, uint256 commitDurationSeconds, uint256 revealDurationSeconds, uint256 unlockTimestamp))",
+  "function admin() view returns (address)",
+  "function creator() view returns (address)",
+  "function commitDurationSeconds() view returns (uint256)",
+  "function creatorAbsentPartnerDepositSlashBps() view returns (uint16)",
   "function isSettled() view returns (bool)",
   "function nextTicketIndex() view returns (uint256)",
-  "function revealDeadline() view returns (uint256)",
-  "function ticketOwner(uint256 ticketId) view returns (address)",
-  "function winner() view returns (address)",
-  
-  // Read - View functions
-  "function getPlayerTicketCount(address player) view returns (uint256)",
-  "function getPlayerTickets(address player) view returns (uint256[] memory)",
+  "function partnerShareBps() view returns (uint16)",
+  "function paymentToken() view returns (address)",
+  "function platformFeeBps() view returns (uint16)",
+  "function playerCommitment() view returns (bytes32)",
+  "function revealDurationSeconds() view returns (uint256)",
+  "function sessionCommitment() view returns (bytes32)",
+  "function settledType() view returns (uint8)",
+  "function ticketCounts(address player) view returns (uint256)",
+  "function ticketPrice() view returns (uint256)",
+  "function ticketToPlayer(uint256 ticketId) view returns (address)",
+  "function totalTickets() view returns (uint256)",
+  "function treasury() view returns (address)",
+  "function unlockTimestamp() view returns (uint256)",
 
   // Write
   "function playerBuyAndCommitTicket(uint256 quantity, bytes32 secret, bool useBalance) external payable",
-  "function reveal(bytes32 sessionSecret) external",
-  "function settle() external",
-  "function claimRefund() external",
-  "function claimPrize() external",
+  "function reveal(bytes revealData, bytes32 salt) external",
   "function finalizeTicketsUnsoldSettlement() external",
   "function creditPrincipalAndPenaltyIfTicketsUnsold() external",
+  "function finalizeCreatorAbsentSettlement() external",
+  "function creditPrincipalAndCompensationIfCreatorAbsent() external",
 
   // Events
   "event TicketsPurchased(address indexed player, uint256 quantity, uint256 nextIndex)",
-  "event SessionRevealed(bytes32 sessionSecret)",
-  "event WinnerDetermined(address indexed winner, uint256 winningTicket)",
-  "event Settled()",
+  "event SessionSettled(uint8 indexed settlementType)",
+  "event WinnerSelected(address indexed winner, uint256 ticketIndex)",
   "event RefundClaimed(address indexed player, uint256 amount)",
-  "event PrizeClaimed(address indexed winner, uint256 amount)",
 ] as const
 
 /* ── CommitRevealTreasury ── */
