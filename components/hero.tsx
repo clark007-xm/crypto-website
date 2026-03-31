@@ -1,25 +1,55 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import dynamic from "next/dynamic"
-import { ArrowRight, Shield, Zap, Trophy } from "lucide-react"
-import { useT } from "@/lib/i18n/context"
-import { useWallet } from "@/lib/wallet/context"
+import { useState } from "react";
+import dynamic from "next/dynamic";
+import { ArrowRight, Shield, Zap, Trophy } from "lucide-react";
+import { useT } from "@/lib/i18n/context";
+import { useWallet } from "@/lib/wallet/context";
 
-const ConnectModal = dynamic(
-  () => import("./connect-modal").then((mod) => mod.ConnectModal)
-)
+const ConnectModal = dynamic(() =>
+  import("./connect-modal").then((mod) => mod.ConnectModal),
+);
 
 export function Hero() {
-  const t = useT()
-  const { status } = useWallet()
-  const [modalOpen, setModalOpen] = useState(false)
+  const t = useT();
+  const { status } = useWallet();
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const scrollToSection = (sectionId: string) => {
+    if (typeof window === "undefined") return;
+
+    let attempts = 0;
+    const maxAttempts = 20;
+
+    const tryScroll = () => {
+      const target = document.getElementById(sectionId);
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        window.history.replaceState(null, "", `#${sectionId}`);
+        return;
+      }
+
+      if (attempts < maxAttempts) {
+        attempts += 1;
+        window.setTimeout(tryScroll, 100);
+      }
+    };
+
+    tryScroll();
+  };
 
   const handleJoin = () => {
     if (status !== "connected") {
-      setModalOpen(true)
+      setModalOpen(true);
+      return;
     }
-  }
+
+    scrollToSection("ongoing");
+  };
+
+  const handleRules = () => {
+    scrollToSection("rules");
+  };
 
   return (
     <div className="hero min-h-[60vh] sm:min-h-[70vh] relative overflow-hidden">
@@ -49,11 +79,17 @@ export function Hero() {
 
         {/* CTA Buttons */}
         <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full sm:w-auto px-4 sm:px-0">
-          <button className="btn btn-primary btn-md sm:btn-lg gap-2 shadow-lg shadow-primary/20 flex-1 sm:flex-none" onClick={handleJoin}>
+          <button
+            className="btn btn-primary btn-md sm:btn-lg gap-2 shadow-lg shadow-primary/20 flex-1 sm:flex-none"
+            onClick={handleJoin}
+          >
             {t.hero.ctaJoin}
             <ArrowRight className="h-5 w-5" />
           </button>
-          <button className="btn btn-outline btn-md sm:btn-lg border-base-content/20 text-base-content hover:bg-base-content/10 hover:border-base-content/30 flex-1 sm:flex-none">
+          <button
+            className="btn btn-outline btn-md sm:btn-lg border-base-content/20 text-base-content hover:bg-base-content/10 hover:border-base-content/30 flex-1 sm:flex-none"
+            onClick={handleRules}
+          >
             {t.hero.ctaRules}
           </button>
         </div>
@@ -64,16 +100,28 @@ export function Hero() {
         {/* Stats */}
         <div className="stats stats-vertical sm:stats-horizontal bg-base-200/60 shadow border border-base-content/5 mt-4 w-full max-w-lg sm:max-w-none sm:w-auto">
           <div className="stat px-6 sm:px-8 py-3 sm:py-4">
-            <div className="stat-title text-base-content/40 text-xs sm:text-sm">{t.hero.statPool}</div>
-            <div className="stat-value text-primary font-display text-xl sm:text-2xl md:text-3xl">$2.8M+</div>
+            <div className="stat-title text-base-content/40 text-xs sm:text-sm">
+              {t.hero.statPool}
+            </div>
+            <div className="stat-value text-primary font-display text-xl sm:text-2xl md:text-3xl">
+              $2.8M+
+            </div>
           </div>
           <div className="stat px-6 sm:px-8 py-3 sm:py-4">
-            <div className="stat-title text-base-content/40 text-xs sm:text-sm">{t.hero.statUsers}</div>
-            <div className="stat-value text-accent font-display text-xl sm:text-2xl md:text-3xl">12,480</div>
+            <div className="stat-title text-base-content/40 text-xs sm:text-sm">
+              {t.hero.statUsers}
+            </div>
+            <div className="stat-value text-accent font-display text-xl sm:text-2xl md:text-3xl">
+              12,480
+            </div>
           </div>
           <div className="stat px-6 sm:px-8 py-3 sm:py-4">
-            <div className="stat-title text-base-content/40 text-xs sm:text-sm">{t.hero.statRounds}</div>
-            <div className="stat-value text-base-content font-display text-xl sm:text-2xl md:text-3xl">3,126</div>
+            <div className="stat-title text-base-content/40 text-xs sm:text-sm">
+              {t.hero.statRounds}
+            </div>
+            <div className="stat-value text-base-content font-display text-xl sm:text-2xl md:text-3xl">
+              3,126
+            </div>
           </div>
         </div>
 
@@ -94,5 +142,5 @@ export function Hero() {
         </div>
       </div>
     </div>
-  )
+  );
 }
