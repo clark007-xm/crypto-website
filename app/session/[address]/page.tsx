@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { ArrowLeft, Clock, ExternalLink, Ticket, Loader2 } from "lucide-react"
 import { formatEther, ZeroAddress } from "ethers"
@@ -18,6 +18,7 @@ import { useCountdown } from "@/hooks/use-countdown"
 import { BuyModal } from "@/components/buy-modal"
 import { CreatorPanel } from "@/components/creator-panel"
 import { PlayerClaimPanel } from "@/components/player-claim-panel"
+import { SessionPurchaseHistory } from "@/components/session-purchase-history"
 
 // ETH to USDT rate for display
 const ETH_USDT_RATE = 2500
@@ -30,8 +31,8 @@ export default function SessionDetailPage() {
   
   // Fetch all sessions and find the current one
   const { sessions, loading: sessionsLoading } = useActiveSessions()
-  const { info: sessionInfo } = useSessionInfo(sessionAddress)
-  const { tickets: playerTicketCount } = usePlayerTickets(sessionAddress)
+  const { info: sessionInfo, refresh: refreshSessionInfo } = useSessionInfo(sessionAddress)
+  const { tickets: playerTicketCount, refresh: refreshPlayerTickets } = usePlayerTickets(sessionAddress)
   const session = useMemo(() => {
     return sessions.find(s => s.sessionAddress.toLowerCase() === sessionAddress?.toLowerCase())
   }, [sessions, sessionAddress])
@@ -57,6 +58,7 @@ export default function SessionDetailPage() {
   
   // Buy modal state
   const [buyModalOpen, setBuyModalOpen] = useState(false)
+  const [purchaseHistoryRefreshNonce, setPurchaseHistoryRefreshNonce] = useState(0)
   const phase = resolvedSession
     ? getSessionPhaseState(
         resolvedSession.unlockTimestamp,
@@ -86,6 +88,8 @@ export default function SessionDetailPage() {
   const ticketPriceNum = resolvedSession ? Number(formatEther(resolvedSession.ticketPrice)) : 0
   const totalTickets = resolvedSession ? Number(resolvedSession.totalTickets) : 0
   const ticketsSold = resolvedSession ? Number(resolvedSession.ticketsSold) : 0
+  const availableTickets = Math.max(totalTickets - ticketsSold, 0)
+  const isSoldOut = availableTickets <= 0
   
   // Check if commit phase is active
   const isSettled = resolvedSession ? resolvedSession.isSettled : false
@@ -106,6 +110,22 @@ export default function SessionDetailPage() {
     resolvedSession && resolvedSession.commitDeadline > 0n
       ? new Date(Number(resolvedSession.commitDeadline) * 1000).toLocaleString()
       : null
+
+  const handlePurchaseSuccess = useCallback(async () => {
+    await Promise.all([
+      refreshSessionInfo(),
+      refreshPlayerTickets(),
+    ])
+    setPurchaseHistoryRefreshNonce((current) => current + 1)
+  }, [refreshPlayerTickets, refreshSessionInfo])
+
+  const handleBack = useCallback(() => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back()
+      return
+    }
+    router.push("/")
+  }, [router])
   
   // Loading state
   if (sessionsLoading) {
@@ -135,7 +155,7 @@ export default function SessionDetailPage() {
       <div className="max-w-2xl mx-auto">
         {/* Back button */}
         <button 
-          onClick={() => router.back()}
+          onClick={handleBack}
           className="btn btn-ghost btn-sm gap-2 mb-6"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -250,14 +270,28 @@ export default function SessionDetailPage() {
                 <span className="text-base-content/60">{t.session.totalTicketsLabel}</span>
                 <span className="font-semibold">{totalTickets}</span>
               </div>
+
+              <div className="flex items-center justify-between py-3 border-t border-base-content/10">
+                <span className="text-base-content/60">{t.session.unsoldCount}</span>
+                <span className={`font-semibold ${isSoldOut ? "text-warning" : ""}`}>
+                  {availableTickets}
+                </span>
+              </div>
+
+              {isSoldOut && (
+                <div className="alert alert-info mt-4 py-2">
+                  <span className="text-sm">{t.session.allTicketsSold}</span>
+                </div>
+              )}
               
               {/* Buy button - opens modal */}
               <button
                 className="btn btn-primary btn-lg w-full mt-4 gap-2"
                 onClick={() => setBuyModalOpen(true)}
+                disabled={isSoldOut}
               >
                 <Ticket className="h-5 w-5" />
-                {t.session.buyNow}
+                {isSoldOut ? t.session.allTicketsSold : t.session.buyNow}
               </button>
             </div>
           </div>
@@ -316,6 +350,13 @@ export default function SessionDetailPage() {
             </div>
           </div>
         )}
+
+        {resolvedSession && (
+          <SessionPurchaseHistory
+            session={resolvedSession}
+            refreshNonce={purchaseHistoryRefreshNonce}
+          />
+        )}
         
         {/* Creator management panel */}
         {resolvedSession && (
@@ -338,6 +379,7 @@ export default function SessionDetailPage() {
           onClose={() => setBuyModalOpen(false)}
           session={resolvedSession}
           ethPrice={ETH_USDT_RATE}
+          onPurchaseSuccess={handlePurchaseSuccess}
         />
       )}
     </main>

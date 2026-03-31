@@ -6,6 +6,7 @@ import type { ContractTransactionResponse } from "ethers"
 import { useWallet } from "@/lib/wallet/context"
 import { useRpc } from "@/lib/rpc/context"
 import { CHAINS } from "@/lib/rpc/nodes"
+import type { TransactionLifecycleCallbacks } from "@/lib/transactions/types"
 import { ERC20_ABI, FACTORY_ABI, SESSION_ABI, TREASURY_ABI } from "./abis"
 import { getAddresses, hasDeployedContracts } from "./addresses"
 import { getMaxBlockRange } from "./config"
@@ -311,7 +312,11 @@ export function useApproveUsdt() {
   signerRef.current = signer
 
   const approve = useCallback(
-    async (spender: string, amount: string) => {
+    async (
+      spender: string,
+      amount: string,
+      callbacks?: TransactionLifecycleCallbacks
+    ) => {
       const currentSigner = signerRef.current
       if (!currentSigner || !chainId) return null
       setLoading(true)
@@ -321,10 +326,14 @@ export function useApproveUsdt() {
         const contract = new Contract(usdt, ERC20_ABI, currentSigner)
         const decimals = (await contract.decimals()) as bigint
         const parsed = parseUnits(amount, Number(decimals))
+        callbacks?.onAwaitingSignature?.()
         const tx = (await contract.approve(spender, parsed)) as ContractTransactionResponse
+        callbacks?.onSubmitted?.(tx)
         await tx.wait()
+        callbacks?.onConfirmed?.(tx)
         return tx
       } catch (err) {
+        callbacks?.onError?.(err)
         setError(err instanceof Error ? err.message : "Approve failed")
         return null
       } finally {
@@ -464,7 +473,10 @@ export function useDepositToTreasury() {
   signerRef.current = signer
 
   const deposit = useCallback(
-    async (amountWei: bigint): Promise<boolean> => {
+    async (
+      amountWei: bigint,
+      callbacks?: TransactionLifecycleCallbacks
+    ): Promise<boolean> => {
       const currentSigner = signerRef.current
       if (!currentSigner || !chainId) {
         setError("Wallet not connected")
@@ -481,10 +493,14 @@ export function useDepositToTreasury() {
         
         // partnerDeposit() is a payable function - send ETH directly
         const treasuryContract = new Contract(treasury, TREASURY_ABI, currentSigner)
+        callbacks?.onAwaitingSignature?.()
         const depositTx = await treasuryContract.partnerDeposit({ value: amountWei })
+        callbacks?.onSubmitted?.(depositTx)
         await depositTx.wait()
+        callbacks?.onConfirmed?.(depositTx)
         return true
       } catch (err) {
+        callbacks?.onError?.(err)
         setError(err instanceof Error ? err.message : "Deposit failed")
         return false
       } finally {
@@ -575,7 +591,10 @@ export function useCreateSession() {
   signerRef.current = signer
 
   const createSession = useCallback(
-    async (config: CreateSessionConfig): Promise<string | null> => {
+    async (
+      config: CreateSessionConfig,
+      callbacks?: TransactionLifecycleCallbacks
+    ): Promise<string | null> => {
       const currentSigner = signerRef.current
       if (!currentSigner || !address || !chainId) {
         setError("Wallet not connected")
@@ -622,8 +641,11 @@ export function useCreateSession() {
           unlockTimestamp,
         }
 
+        callbacks?.onAwaitingSignature?.()
         const tx = await factoryContract.createSession(sessionConfig)
+        callbacks?.onSubmitted?.(tx)
         const receipt = await tx.wait()
+        callbacks?.onConfirmed?.(tx)
 
         const event = receipt.logs.find((log: (typeof receipt.logs)[number]) => {
           try {
@@ -642,6 +664,7 @@ export function useCreateSession() {
 
         return null
       } catch (err) {
+        callbacks?.onError?.(err)
         setError(err instanceof Error ? err.message : "Create session failed")
         return null
       } finally {
@@ -966,6 +989,119 @@ export function usePlayerTickets(sessionAddress: string | null) {
   return { tickets, loading, refresh }
 }
 
+export interface SessionPurchaseRecord {
+  transactionHash: string
+  blockNumber: number
+  blockTimestamp: number
+  quantity: bigint
+  nextIndex: bigint
+  firstTicketIndex: bigint
+  lastTicketIndex: bigint
+  logIndex: number
+}
+
+export function useSessionPurchaseHistory(sessionAddress: string | null) {
+  const { address } = useWallet()
+  const session = useSessionContract(sessionAddress)
+  const [records, setRecords] = useState<SessionPurchaseRecord[]>([])
+  const [loading, setLoading] = useState(false)
+  const lastFetchKey = useRef<string | null>(null)
+
+  const sessionRef = useRef(session)
+  sessionRef.current = session
+
+  const refresh = useCallback(async () => {
+    const currentSession = sessionRef.current
+    if (!currentSession || !address || !sessionAddress) {
+      setRecords([])
+      return
+    }
+
+    setLoading(true)
+    try {
+      const provider = currentSession.runner?.provider
+      if (!provider) {
+        setRecords([])
+        return
+      }
+
+      const filter = currentSession.filters.TicketsPurchased(address)
+      const events = await currentSession.queryFilter(filter)
+      const uniqueBlockNumbers = [
+        ...new Set(
+          events
+            .map((event) => event.blockNumber)
+            .filter((value): value is number => typeof value === "number")
+        ),
+      ]
+      const blockEntries = await Promise.all(
+        uniqueBlockNumbers.map(async (blockNumber) => {
+          const block = await provider.getBlock(blockNumber)
+          return [blockNumber, block?.timestamp ?? 0] as const
+        })
+      )
+      const blockTimestampMap = new Map<number, number>(blockEntries)
+
+      const purchaseRecords = events
+        .map((event) => {
+          try {
+            const parsed = currentSession.interface.parseLog(event)
+            if (!parsed || parsed.name !== "TicketsPurchased") {
+              return null
+            }
+
+            const quantity = BigInt(
+              (parsed.args?.quantity ?? parsed.args?.[1] ?? 0) as bigint | number | string
+            )
+            const nextIndex = BigInt(
+              (parsed.args?.nextIndex ?? parsed.args?.[2] ?? 0) as bigint | number | string
+            )
+            const firstTicketIndex = nextIndex >= quantity ? nextIndex - quantity : 0n
+            const lastTicketIndex = nextIndex > 0n ? nextIndex - 1n : 0n
+
+            return {
+              transactionHash: event.transactionHash,
+              blockNumber: event.blockNumber,
+              blockTimestamp: blockTimestampMap.get(event.blockNumber) ?? 0,
+              quantity,
+              nextIndex,
+              firstTicketIndex,
+              lastTicketIndex,
+              logIndex: Number(
+                (event as { logIndex?: number; index?: number }).logIndex ??
+                  (event as { index?: number }).index ??
+                  0
+              ),
+            } satisfies SessionPurchaseRecord
+          } catch {
+            return null
+          }
+        })
+        .filter((record): record is SessionPurchaseRecord => Boolean(record))
+        .sort((a, b) => {
+          if (b.blockNumber !== a.blockNumber) return b.blockNumber - a.blockNumber
+          return b.logIndex - a.logIndex
+        })
+
+      setRecords(purchaseRecords)
+      lastFetchKey.current = `${sessionAddress}-${address}`
+    } catch {
+      setRecords([])
+    } finally {
+      setLoading(false)
+    }
+  }, [address, sessionAddress])
+
+  useEffect(() => {
+    const key = sessionAddress && address ? `${sessionAddress}-${address}` : null
+    if (session && address && key && lastFetchKey.current !== key) {
+      refresh()
+    }
+  }, [session, address, sessionAddress, refresh])
+
+  return { records, loading, refresh }
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
  *  Session Actions
  * ═════════════════════════════════════════════════════════════════════════��══ */
@@ -992,7 +1128,8 @@ export function useBuyTickets() {
       quantity: number,
       secret: string,
       useBalance: boolean,
-      value?: bigint
+      value?: bigint,
+      callbacks?: TransactionLifecycleCallbacks
     ) => {
       const currentSigner = signerRef.current
       if (!currentSigner) return null
@@ -1023,15 +1160,19 @@ export function useBuyTickets() {
           { value: value || 0n }
         )
 
+        callbacks?.onAwaitingSignature?.()
         const tx = (await contract.playerBuyAndCommitTicket(
           quantity,
           secret,
           useBalance,
           { value: value || 0n }
         )) as ContractTransactionResponse
+        callbacks?.onSubmitted?.(tx)
         await tx.wait()
+        callbacks?.onConfirmed?.(tx)
         return tx
       } catch (err) {
+        callbacks?.onError?.(err)
         setError(decodeSessionBuyError(err, purchaseState, quantity))
         return null
       } finally {
@@ -1052,17 +1193,24 @@ export function useClaimPrize() {
   const signerRef = useRef(signer)
   signerRef.current = signer
 
-  const claimPrize = useCallback(async (sessionAddress: string) => {
+  const claimPrize = useCallback(async (
+    sessionAddress: string,
+    callbacks?: TransactionLifecycleCallbacks
+  ) => {
     const currentSigner = signerRef.current
     if (!currentSigner) return null
     setLoading(true)
     setError(null)
     try {
       const contract = new Contract(sessionAddress, SESSION_ABI, currentSigner)
+      callbacks?.onAwaitingSignature?.()
       const tx = (await contract.claimPrize()) as ContractTransactionResponse
+      callbacks?.onSubmitted?.(tx)
       await tx.wait()
+      callbacks?.onConfirmed?.(tx)
       return tx
     } catch (err) {
+      callbacks?.onError?.(err)
       setError(err instanceof Error ? err.message : "Claim prize failed")
       return null
     } finally {
@@ -1081,17 +1229,24 @@ export function useRefund() {
   const signerRef = useRef(signer)
   signerRef.current = signer
 
-  const refund = useCallback(async (sessionAddress: string) => {
+  const refund = useCallback(async (
+    sessionAddress: string,
+    callbacks?: TransactionLifecycleCallbacks
+  ) => {
     const currentSigner = signerRef.current
     if (!currentSigner) return null
     setLoading(true)
     setError(null)
     try {
       const contract = new Contract(sessionAddress, SESSION_ABI, currentSigner)
+      callbacks?.onAwaitingSignature?.()
       const tx = (await contract.claimRefund()) as ContractTransactionResponse
+      callbacks?.onSubmitted?.(tx)
       await tx.wait()
+      callbacks?.onConfirmed?.(tx)
       return tx
     } catch (err) {
+      callbacks?.onError?.(err)
       setError(err instanceof Error ? err.message : "Refund failed")
       return null
     } finally {
@@ -1120,17 +1275,24 @@ export function useUnsoldSettlement() {
   const signerRef = useRef(signer)
   signerRef.current = signer
 
-  const finalizeUnsoldSettlement = useCallback(async (sessionAddress: string) => {
+  const finalizeUnsoldSettlement = useCallback(async (
+    sessionAddress: string,
+    callbacks?: TransactionLifecycleCallbacks
+  ) => {
     const currentSigner = signerRef.current
     if (!currentSigner) return null
     setLoading(true)
     setError(null)
     try {
       const contract = new Contract(sessionAddress, SESSION_ABI, currentSigner)
+      callbacks?.onAwaitingSignature?.()
       const tx = (await contract.finalizeTicketsUnsoldSettlement()) as ContractTransactionResponse
+      callbacks?.onSubmitted?.(tx)
       await tx.wait()
+      callbacks?.onConfirmed?.(tx)
       return tx
     } catch (err) {
+      callbacks?.onError?.(err)
       setError(err instanceof Error ? err.message : "Unsold settlement failed")
       return null
     } finally {
@@ -1149,17 +1311,24 @@ export function useCreatorAbsentSettlement() {
   const signerRef = useRef(signer)
   signerRef.current = signer
 
-  const finalizeCreatorAbsentSettlement = useCallback(async (sessionAddress: string) => {
+  const finalizeCreatorAbsentSettlement = useCallback(async (
+    sessionAddress: string,
+    callbacks?: TransactionLifecycleCallbacks
+  ) => {
     const currentSigner = signerRef.current
     if (!currentSigner) return null
     setLoading(true)
     setError(null)
     try {
       const contract = new Contract(sessionAddress, SESSION_ABI, currentSigner)
+      callbacks?.onAwaitingSignature?.()
       const tx = (await contract.finalizeCreatorAbsentSettlement()) as ContractTransactionResponse
+      callbacks?.onSubmitted?.(tx)
       await tx.wait()
+      callbacks?.onConfirmed?.(tx)
       return tx
     } catch (err) {
+      callbacks?.onError?.(err)
       setError(err instanceof Error ? err.message : "Creator absent settlement failed")
       return null
     } finally {
@@ -1187,17 +1356,24 @@ export function useClaimPrincipalAndPenalty() {
   const signerRef = useRef(signer)
   signerRef.current = signer
 
-  const claimPrincipalAndPenalty = useCallback(async (sessionAddress: string) => {
+  const claimPrincipalAndPenalty = useCallback(async (
+    sessionAddress: string,
+    callbacks?: TransactionLifecycleCallbacks
+  ) => {
     const currentSigner = signerRef.current
     if (!currentSigner) return null
     setLoading(true)
     setError(null)
     try {
       const contract = new Contract(sessionAddress, SESSION_ABI, currentSigner)
+      callbacks?.onAwaitingSignature?.()
       const tx = (await contract.creditPrincipalAndPenaltyIfTicketsUnsold()) as ContractTransactionResponse
+      callbacks?.onSubmitted?.(tx)
       await tx.wait()
+      callbacks?.onConfirmed?.(tx)
       return tx
     } catch (err) {
+      callbacks?.onError?.(err)
       setError(err instanceof Error ? err.message : "Claim failed")
       return null
     } finally {
@@ -1216,17 +1392,24 @@ export function useClaimPrincipalAndCompensationIfCreatorAbsent() {
   const signerRef = useRef(signer)
   signerRef.current = signer
 
-  const claimPrincipalAndCompensation = useCallback(async (sessionAddress: string) => {
+  const claimPrincipalAndCompensation = useCallback(async (
+    sessionAddress: string,
+    callbacks?: TransactionLifecycleCallbacks
+  ) => {
     const currentSigner = signerRef.current
     if (!currentSigner) return null
     setLoading(true)
     setError(null)
     try {
       const contract = new Contract(sessionAddress, SESSION_ABI, currentSigner)
+      callbacks?.onAwaitingSignature?.()
       const tx = (await contract.creditPrincipalAndCompensationIfCreatorAbsent()) as ContractTransactionResponse
+      callbacks?.onSubmitted?.(tx)
       await tx.wait()
+      callbacks?.onConfirmed?.(tx)
       return tx
     } catch (err) {
+      callbacks?.onError?.(err)
       setError(err instanceof Error ? err.message : "Claim failed")
       return null
     } finally {

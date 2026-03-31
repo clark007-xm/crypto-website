@@ -1,10 +1,10 @@
-"use client"
+"use client";
 
-import { useT } from "@/lib/i18n/context"
-import { BrandLogo } from "./brand-logo"
+import { useT } from "@/lib/i18n/context";
+import { BrandLogo } from "./brand-logo";
 
 export function SiteFooter() {
-  const t = useT()
+  const t = useT();
 
   return (
     <footer className="footer bg-base-300/50 text-base-content/40 p-6 sm:p-10 border-t border-base-content/5 max-w-7xl mx-auto grid-cols-2 sm:grid-cols-none">
@@ -23,26 +23,60 @@ export function SiteFooter() {
         </p>
       </aside>
       <nav>
-        <h6 className="footer-title text-base-content/60">{t.footer.platform}</h6>
+        <h6 className="footer-title text-base-content/60">
+          {t.footer.platform}
+        </h6>
         <a className="link link-hover">{t.footer.ongoing}</a>
         <a className="link link-hover">{t.footer.history}</a>
         <a className="link link-hover">{t.footer.myBets}</a>
         <a className="link link-hover">{t.footer.leaderboard}</a>
       </nav>
       <nav>
-        <h6 className="footer-title text-base-content/60">{t.footer.support}</h6>
+        <h6 className="footer-title text-base-content/60">
+          {t.footer.support}
+        </h6>
         <a className="link link-hover">{t.footer.rules}</a>
         <a className="link link-hover">{t.footer.faq}</a>
         <a className="link link-hover">{t.footer.contact}</a>
         <a className="link link-hover">{t.footer.contractAddr}</a>
       </nav>
       <nav>
-        <h6 className="footer-title text-base-content/60">{t.footer.community}</h6>
-        <a className="link link-hover">Telegram</a>
-        <a className="link link-hover">Discord</a>
-        <a className="link link-hover">Twitter / X</a>
-        <a className="link link-hover">Medium</a>
+        <h6 className="footer-title text-base-content/60">
+          {t.footer.community}
+        </h6>
+        <a
+          className="link link-hover"
+          href="https://t.me/onetappy_global_partner_channel"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Telegram
+        </a>
+        <a
+          className="link link-hover"
+          href="https://discord.com/invite/9Thj5CeBNw"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Discord
+        </a>
+        <a
+          className="link link-hover"
+          href="https://x.com/onetappy"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Twitter / X
+        </a>
+        <a
+          className="link link-hover"
+          href="https://medium.com/@onetappy/why-im-building-onetappy-transparent-raffles-one-tap-entry-and-partner-first-economics-831e2334f034"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Medium
+        </a>
       </nav>
     </footer>
-  )
+  );
 }

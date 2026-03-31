@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { AlertTriangle, CheckCircle, Loader2, Settings } from "lucide-react"
+import { useTransactionFlow } from "@/components/transaction-flow-provider"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import {
@@ -18,7 +19,8 @@ interface CreatorPanelProps {
 
 export function CreatorPanel({ session, ticketsSold }: CreatorPanelProps) {
   const t = useT()
-  const { address } = useWallet()
+  const { address, shortAddress } = useWallet()
+  const transactionFlow = useTransactionFlow()
   const {
     finalizeUnsoldSettlement,
     loading: unsoldLoading,
@@ -61,7 +63,17 @@ export function CreatorPanel({ session, ticketsSold }: CreatorPanelProps) {
   const handleFinalizeUnsold = async () => {
     if (!canFinalizeUnsold) return
     setUnsoldSuccess(false)
-    const tx = await finalizeUnsoldSettlement(session.sessionAddress)
+    const tx = await finalizeUnsoldSettlement(
+      session.sessionAddress,
+      transactionFlow.createController({
+        chainId: session.chainId,
+        fields: [
+          { label: t.tx.account, value: shortAddress ?? address ?? "-", tone: "success" },
+          { label: t.tx.action, value: t.session.finalizeUnsold },
+          { label: t.tx.details, value: session.sessionAddress.slice(0, 10) + "..." },
+        ],
+      }).callbacks
+    )
     if (tx) {
       setUnsoldSuccess(true)
     }
@@ -70,7 +82,17 @@ export function CreatorPanel({ session, ticketsSold }: CreatorPanelProps) {
   const handleFinalizeCreatorAbsent = async () => {
     if (!canFinalizeCreatorAbsent) return
     setCreatorAbsentSuccess(false)
-    const tx = await finalizeCreatorAbsentSettlement(session.sessionAddress)
+    const tx = await finalizeCreatorAbsentSettlement(
+      session.sessionAddress,
+      transactionFlow.createController({
+        chainId: session.chainId,
+        fields: [
+          { label: t.tx.account, value: shortAddress ?? address ?? "-", tone: "success" },
+          { label: t.tx.action, value: t.session.finalizeCreatorAbsent },
+          { label: t.tx.details, value: session.sessionAddress.slice(0, 10) + "..." },
+        ],
+      }).callbacks
+    )
     if (tx) {
       setCreatorAbsentSuccess(true)
     }

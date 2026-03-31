@@ -62,19 +62,53 @@ export function SessionCard({ session }: SessionCardProps) {
   const shortAddress = `${session.sessionAddress.slice(0, 6)}...${session.sessionAddress.slice(-4)}`
 
   const isHot = progress > 70
+  const tags = [
+    phase.isCommitPhaseActive
+      ? {
+          label: t.products.buying,
+          className: "border-success/25 bg-success/10 text-success",
+        }
+      : phase.isUpcoming && !isSettled
+        ? {
+            label: t.session.notStarted,
+            className: "border-info/25 bg-info/10 text-info",
+          }
+        : phase.isRevealPhase && !isSettled
+          ? {
+              label: t.products.revealing,
+              className: "border-warning/25 bg-warning/10 text-warning",
+            }
+          : isSettled
+            ? {
+                label: t.products.settled,
+                className: "border-base-content/10 bg-base-300/80 text-base-content/70",
+              }
+            : null,
+    isHot
+      ? {
+          label: "HOT",
+          className: "border-error/25 bg-error/10 text-error",
+          icon: Flame,
+        }
+      : null,
+  ].filter(Boolean) as Array<{
+    label: string
+    className: string
+    icon?: typeof Flame
+  }>
 
   return (
     <div className="card bg-base-200 border border-base-content/5 hover:border-primary/30 transition-all duration-300 group">
       <div className="card-body gap-3 sm:gap-4 p-4 sm:p-6">
         {/* Header row */}
         <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="avatar placeholder">
               <div className="bg-gradient-to-br from-primary/20 to-secondary/20 rounded-xl w-11 h-11">
                 <span className="text-sm font-bold text-primary">{isEth ? "ETH" : "TKN"}</span>
               </div>
             </div>
-            <div>
+            <div className="min-w-0">
               <h3 className="card-title text-base font-bold">
                 {isEth ? t.products.ethPool : t.products.tokenPool}
               </h3>
@@ -82,40 +116,26 @@ export function SessionCard({ session }: SessionCardProps) {
                 href={getExplorerAddressUrl(session.chainId, session.sessionAddress)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-base-content/40 hover:text-primary flex items-center gap-1"
+                className="mt-1 inline-flex max-w-full items-center gap-1 text-xs text-base-content/40 hover:text-primary"
               >
                 {shortAddress}
                 <ExternalLink className="h-3 w-3" />
               </Link>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1">
-            {phase.isCommitPhaseActive && (
-              <div className="badge badge-success badge-sm font-bold">
-                {t.products.buying}
-              </div>
-            )}
-            {phase.isUpcoming && !isSettled && (
-              <div className="badge badge-info badge-sm font-bold">
-                {t.session.notStarted}
-              </div>
-            )}
-            {phase.isRevealPhase && !isSettled && (
-              <div className="badge badge-warning badge-sm font-bold">
-                {t.products.revealing}
-              </div>
-            )}
-            {isSettled && (
-              <div className="badge badge-neutral badge-sm font-bold">
-                {t.products.settled}
-              </div>
-            )}
-            {isHot && (
-              <div className="badge badge-error badge-sm gap-1 font-bold">
-                <Flame className="h-3 w-3" />
-                HOT
-              </div>
-            )}
+          <div className="ml-3 flex max-w-[148px] shrink-0 flex-wrap justify-end gap-1.5 self-start">
+            {tags.map((tag) => {
+              const Icon = tag.icon
+              return (
+                <div
+                  key={tag.label}
+                  className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-[11px] font-bold tracking-[0.02em] whitespace-nowrap shadow-sm ${tag.className}`}
+                >
+                  {Icon && <Icon className="h-3.5 w-3.5" />}
+                  <span>{tag.label}</span>
+                </div>
+              )
+            })}
           </div>
         </div>
 

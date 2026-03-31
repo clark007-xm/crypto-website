@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Gift, CheckCircle, AlertCircle } from "lucide-react"
+import { useTransactionFlow } from "@/components/transaction-flow-provider"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import {
@@ -22,7 +23,8 @@ const ETH_USDT_RATE = 2500
 
 export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPanelProps) {
   const t = useT()
-  const { address, status } = useWallet()
+  const { address, shortAddress, status } = useWallet()
+  const transactionFlow = useTransactionFlow()
   const {
     claimPrincipalAndPenalty,
     loading: unsoldLoading,
@@ -64,9 +66,17 @@ export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPane
   const handleClaim = async () => {
     if (!address || claimed) return
 
+    const controller = transactionFlow.createController({
+      chainId: session.chainId,
+      fields: [
+        { label: t.tx.account, value: shortAddress ?? address ?? "-", tone: "success" },
+        { label: t.tx.action, value: t.session.claimNow },
+        { label: t.tx.details, value: `${playerTicketCount} tickets` },
+      ],
+    })
     const result = isCreatorAbsentSettled
-      ? await claimPrincipalAndCompensation(session.sessionAddress)
-      : await claimPrincipalAndPenalty(session.sessionAddress)
+      ? await claimPrincipalAndCompensation(session.sessionAddress, controller.callbacks)
+      : await claimPrincipalAndPenalty(session.sessionAddress, controller.callbacks)
     if (result) {
       setClaimed(true)
       setSuccess(true)

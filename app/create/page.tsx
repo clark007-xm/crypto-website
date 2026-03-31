@@ -5,6 +5,7 @@ import Link from "next/link"
 import { ArrowLeft, AlertTriangle, CheckCircle, Copy, Check, Eye, EyeOff, Wallet } from "lucide-react"
 import { parseEther, formatEther, keccak256, toUtf8Bytes } from "ethers"
 import { Navbar } from "@/components/navbar"
+import { useTransactionFlow } from "@/components/transaction-flow-provider"
 import { DurationPicker } from "@/components/duration-picker"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
@@ -18,7 +19,8 @@ import {
 
 export default function CreatePage() {
   const t = useT()
-  const { status } = useWallet()
+  const { status, address, shortAddress, chainId } = useWallet()
+  const transactionFlow = useTransactionFlow()
   const { isPartner, loading: partnerLoading, checked: partnerChecked } = useIsPartner()
   const { createSession, loading: creating, error: createError } = useCreateSession()
   const { balance: depositBalance, isInsufficient, shortfall, loading: depositLoading, checked: depositChecked, refresh: refreshDeposit } = usePartnerDeposit()
@@ -79,7 +81,15 @@ export default function CreatePage() {
     if (!depositAmount) return
     try {
       const amountWei = parseEther(depositAmount)
-      const success = await doDeposit(amountWei)
+      const controller = transactionFlow.createController({
+        chainId,
+        fields: [
+          { label: t.tx.account, value: shortAddress ?? address ?? "-", tone: "success" },
+          { label: t.tx.action, value: t.create.depositBtn },
+          { label: t.tx.details, value: `${depositAmount} ETH` },
+        ],
+      })
+      const success = await doDeposit(amountWei, controller.callbacks)
       if (success) {
         setDepositSuccess(true)
         setDepositAmount("")
@@ -131,15 +141,27 @@ export default function CreatePage() {
       return
     }
 
-    const sessionAddress = await createSession({
-      sessionCommitment: commitment,
-      ticketPrice: parsedTicketPrice,
-      totalTickets: parseInt(totalTickets, 10),
-      partnerShareBps: Math.round(partnerShareNum * 100),
-      platformFeeBps: Math.round(platformFeeNum * 100),
-      commitDurationSeconds,
-      revealDurationSeconds,
+    const controller = transactionFlow.createController({
+      chainId,
+      fields: [
+        { label: t.tx.account, value: shortAddress ?? address ?? "-", tone: "success" },
+        { label: t.tx.action, value: t.create.submit },
+        { label: t.tx.details, value: `${ticketPrice} ETH / ${totalTickets} tickets` },
+      ],
     })
+
+    const sessionAddress = await createSession(
+      {
+        sessionCommitment: commitment,
+        ticketPrice: parsedTicketPrice,
+        totalTickets: parseInt(totalTickets, 10),
+        partnerShareBps: Math.round(partnerShareNum * 100),
+        platformFeeBps: Math.round(platformFeeNum * 100),
+        commitDurationSeconds,
+        revealDurationSeconds,
+      },
+      controller.callbacks
+    )
 
     if (sessionAddress) {
       setSuccess(true)

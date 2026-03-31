@@ -1,9 +1,10 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import dynamic from "next/dynamic"
 import { X, Eye, EyeOff, Copy, RefreshCw, Ticket, Loader2, Check } from "lucide-react"
 import { formatEther, hexlify, randomBytes, keccak256, toUtf8Bytes, ZeroAddress } from "ethers"
+import { useTransactionFlow } from "@/components/transaction-flow-provider"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import { getSessionPhaseState, useBuyTickets, useSessionInfo } from "@/lib/contracts/hooks"
@@ -18,13 +19,21 @@ interface BuyModalProps {
   onClose: () => void
   session: SessionConfigFromEvent
   ethPrice?: number
+  onPurchaseSuccess?: () => Promise<void> | void
 }
 
-export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModalProps) {
+export function BuyModal({
+  isOpen,
+  onClose,
+  session,
+  ethPrice = 2000,
+  onPurchaseSuccess,
+}: BuyModalProps) {
   const t = useT()
-  const { status } = useWallet()
+  const { status, address, shortAddress, chainId } = useWallet()
+  const transactionFlow = useTransactionFlow()
   const { buyTickets, loading: buyLoading, error: buyError } = useBuyTickets()
-  const { info: sessionInfo } = useSessionInfo(isOpen ? session.sessionAddress : null)
+  const { info: sessionInfo, refresh: refreshSessionInfo } = useSessionInfo(isOpen ? session.sessionAddress : null)
   const resolvedSession = useMemo(() => {
     if (!sessionInfo) return session
 
@@ -71,16 +80,39 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
   const [secret, setSecret] = useState("")
   const [showSecret, setShowSecret] = useState(false)
   const [copied, setCopied] = useState(false)
+  const refreshTimeoutRef = useRef<number | null>(null)
+  const closeTimeoutRef = useRef<number | null>(null)
+
+  // Calculations
+  const totalTickets = Number(resolvedSession.totalTickets)
+  const ticketsSold = Number(resolvedSession.ticketsSold)
+  const availableTickets = Math.max(totalTickets - ticketsSold, 0)
+  const isSoldOut = availableTickets <= 0
+  const ticketPriceEth = Number(formatEther(resolvedSession.ticketPrice))
+  const isEth = resolvedSession.paymentToken === ZeroAddress
+  const totalCost = ticketPriceEth * quantity
+  const totalCostUsdt = totalCost * ethPrice
   
   // Reset state when modal opens
   useEffect(() => {
     if (isOpen) {
-      setQuantity(1)
+      setQuantity(availableTickets > 0 ? 1 : 0)
       setSecret("")
       setBuySuccess(false)
       setUseBalance(false)
     }
-  }, [isOpen])
+  }, [availableTickets, isOpen])
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimeoutRef.current) {
+        window.clearTimeout(refreshTimeoutRef.current)
+      }
+      if (closeTimeoutRef.current) {
+        window.clearTimeout(closeTimeoutRef.current)
+      }
+    }
+  }, [])
   
   // Compute commitment hash from secret
   const commitment = useMemo(() => {
@@ -107,13 +139,6 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
     }
   }
   
-  // Calculations
-  const totalTickets = Number(resolvedSession.totalTickets)
-  const ticketPriceEth = Number(formatEther(resolvedSession.ticketPrice))
-  const isEth = resolvedSession.paymentToken === ZeroAddress
-  const totalCost = ticketPriceEth * quantity
-  const totalCostUsdt = totalCost * ethPrice
-  
   // Handle buy
   const handleBuy = async () => {
     if (status !== "connected") {
@@ -121,16 +146,36 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
       return
     }
     
-    if (!session || !secret || !commitment || !phase.isCommitPhaseActive || hasInvalidSchedule) return
+    if (
+      !session ||
+      !secret ||
+      !commitment ||
+      !phase.isCommitPhaseActive ||
+      hasInvalidSchedule ||
+      isSoldOut ||
+      quantity <= 0
+    ) return
 
     const value = useBalance ? 0n : resolvedSession.ticketPrice * BigInt(quantity)
+    const controller = transactionFlow.createController({
+      chainId: resolvedSession.chainId ?? chainId,
+      fields: [
+        { label: t.tx.account, value: shortAddress ?? address ?? "-", tone: "success" },
+        { label: t.tx.action, value: t.session.buyTickets },
+        {
+          label: t.tx.details,
+          value: `${quantity} × ${ticketPriceEth.toFixed(4)} ${isEth ? "ETH" : "TOKEN"}`,
+        },
+      ],
+    })
     
     const tx = await buyTickets(
       resolvedSession.sessionAddress,
       quantity,
       commitment,
       useBalance,
-      value
+      value,
+      controller.callbacks
     )
     
     if (tx) {
@@ -139,11 +184,37 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
       const storedSecrets = localStorage.getItem(secretsKey)
       const parsedSecrets = storedSecrets ? JSON.parse(storedSecrets) : []
       const existingSecrets = Array.isArray(parsedSecrets) ? parsedSecrets : []
-      existingSecrets.push({ secret, commitment, quantity, timestamp: Date.now() })
+      existingSecrets.push({
+        secret,
+        commitment,
+        quantity,
+        timestamp: Date.now(),
+        txHash: tx.hash,
+        useBalance,
+        ticketPriceWei: resolvedSession.ticketPrice.toString(),
+        paymentToken: resolvedSession.paymentToken,
+        buyer: address ?? undefined,
+      })
       localStorage.setItem(secretsKey, JSON.stringify(existingSecrets))
-      
-      // Auto close after success
-      setTimeout(() => {
+
+      const syncSessionState = async () => {
+        await refreshSessionInfo()
+        await onPurchaseSuccess?.()
+      }
+
+      await syncSessionState()
+
+      if (refreshTimeoutRef.current) {
+        window.clearTimeout(refreshTimeoutRef.current)
+      }
+      refreshTimeoutRef.current = window.setTimeout(() => {
+        void syncSessionState()
+      }, 1500)
+
+      if (closeTimeoutRef.current) {
+        window.clearTimeout(closeTimeoutRef.current)
+      }
+      closeTimeoutRef.current = window.setTimeout(() => {
         onClose()
       }, 2000)
     }
@@ -220,35 +291,48 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
                 </span>
               </div>
             )}
+
+            {isSoldOut && !resolvedSession.isSettled && (
+              <div className="alert alert-info py-2">
+                <span className="text-sm">{t.session.allTicketsSold}</span>
+              </div>
+            )}
             
             {/* Quantity */}
             <div className="form-control">
               <label className="label">
                 <span className="label-text font-semibold">{t.session.quantity}</span>
                 <span className="label-text-alt text-base-content/40">
-                  {t.session.maxTickets}: {totalTickets}
+                  {t.session.maxTickets}: {availableTickets}
                 </span>
               </label>
               <div className="flex items-center gap-2">
                 <button
                   className="btn btn-square btn-outline btn-sm"
                   onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                  disabled={quantity <= 1}
+                  disabled={isSoldOut || quantity <= 1}
                 >
                   -
                 </button>
                 <input
                   type="number"
-                  min="1"
-                  max={totalTickets}
+                  min={availableTickets > 0 ? "1" : "0"}
+                  max={String(availableTickets)}
                   value={quantity}
-                  onChange={(e) => setQuantity(Math.max(1, Math.min(totalTickets, parseInt(e.target.value) || 1)))}
+                  onChange={(e) => {
+                    if (availableTickets <= 0) {
+                      setQuantity(0)
+                      return
+                    }
+                    setQuantity(Math.max(1, Math.min(availableTickets, parseInt(e.target.value, 10) || 1)))
+                  }}
                   className="input input-bordered input-sm text-center w-16"
+                  disabled={isSoldOut}
                 />
                 <button
                   className="btn btn-square btn-outline btn-sm"
-                  onClick={() => setQuantity(Math.min(totalTickets, quantity + 1))}
-                  disabled={quantity >= totalTickets}
+                  onClick={() => setQuantity(Math.min(availableTickets, quantity + 1))}
+                  disabled={isSoldOut || quantity >= availableTickets}
                 >
                   +
                 </button>
@@ -259,7 +343,8 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
                     <button
                       key={n}
                       className={`btn btn-xs ${quantity === n ? 'btn-primary' : 'btn-ghost'}`}
-                      onClick={() => setQuantity(Math.min(totalTickets, n))}
+                      onClick={() => setQuantity(Math.min(availableTickets, n))}
+                      disabled={isSoldOut}
                     >
                       {n}
                     </button>
@@ -382,7 +467,9 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
                 !commitment ||
                 buySuccess ||
                 !phase.isCommitPhaseActive ||
-                hasInvalidSchedule
+                hasInvalidSchedule ||
+                isSoldOut ||
+                quantity <= 0
               }
             >
               {buyLoading ? (
@@ -395,6 +482,8 @@ export function BuyModal({ isOpen, onClose, session, ethPrice = 2000 }: BuyModal
                   <Check className="h-5 w-5" />
                   {t.session.buySuccess}
                 </>
+              ) : isSoldOut ? (
+                t.session.allTicketsSold
               ) : status !== "connected" ? (
                 t.session.connectToBuy
               ) : (

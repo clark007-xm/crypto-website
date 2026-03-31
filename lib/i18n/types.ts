@@ -126,6 +126,26 @@ export interface Dictionary {
     insufficientAllowance: string
     noContract: string
   }
+  tx: {
+    confirmTitle: string
+    confirmSubtitle: string
+    sentTitle: string
+    sentSubtitle: string
+    successTitle: string
+    successSubtitle: string
+    errorTitle: string
+    errorSubtitle: string
+    account: string
+    action: string
+    details: string
+    viewOnExplorer: string
+    waitingWallet: string
+    close: string
+    progressConfirm: string
+    progressSent: string
+    progressSuccess: string
+    progressError: string
+  }
   rpc: {
     network: string
     auto: string
@@ -244,6 +264,27 @@ export interface Dictionary {
     claimFailed: string
     noTickets: string
     alreadyClaimed: string
+    purchaseHistory: string
+    purchaseHistoryDesc: string
+    connectToViewRecords: string
+    noPurchaseHistory: string
+    noPurchaseHistoryDesc: string
+    ordersCount: string
+    ticketsCount: string
+    purchaseOrder: string
+    ticketRange: string
+    purchaseAmount: string
+    purchasedAt: string
+    transactionHash: string
+    viewTransaction: string
+    localRecordFound: string
+    localRecordDesc: string
+    localRecordSavedAt: string
+    localRecordMissing: string
+    paymentMethod: string
+    treasuryPayment: string
+    walletPayment: string
+    copyDetail: string
   }
   footer: {
     desc: string

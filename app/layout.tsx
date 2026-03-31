@@ -4,6 +4,7 @@ import { Inter, Space_Grotesk } from "next/font/google"
 import { I18nProvider } from "@/lib/i18n/context"
 import { RpcProvider } from "@/lib/rpc/context"
 import { WalletProvider } from "@/lib/wallet/context"
+import { TransactionFlowProvider } from "@/components/transaction-flow-provider"
 
 import "./globals.css"
 
@@ -34,7 +35,9 @@ export default function RootLayout({
         <I18nProvider>
           <RpcProvider>
             <WalletProvider>
-              {children}
+              <TransactionFlowProvider>
+                {children}
+              </TransactionFlowProvider>
             </WalletProvider>
           </RpcProvider>
         </I18nProvider>

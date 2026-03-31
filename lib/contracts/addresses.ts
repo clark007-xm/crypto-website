@@ -46,3 +46,7 @@ export function getExplorerBaseUrl(chainId: number | null): string {
 export function getExplorerAddressUrl(chainId: number | null, address: string): string {
   return `${getExplorerBaseUrl(chainId)}/address/${address}`
 }
+
+export function getExplorerTxUrl(chainId: number | null, txHash: string): string {
+  return `${getExplorerBaseUrl(chainId)}/tx/${txHash}`
+}
