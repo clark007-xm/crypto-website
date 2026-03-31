@@ -300,7 +300,7 @@ export const en: Dictionary = {
     contact: "Contact Us",
     contractAddr: "Contract Address",
     community: "Community",
-    copyright: "One tap \u00A9 2026. All rights reserved.",
+    copyright: "One Tap \u00A9 2026. All rights reserved.",
     privacy: "Privacy Policy",
     terms: "Terms of Service",
     disclaimer: "Disclaimer",

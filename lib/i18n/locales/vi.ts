@@ -300,7 +300,7 @@ export const vi: Dictionary = {
     contact: "Li\u00EAn h\u1EC7",
     contractAddr: "\u0110\u1ECBa ch\u1EC9 h\u1EE3p \u0111\u1ED3ng",
     community: "C\u1ED9ng \u0111\u1ED3ng",
-    copyright: "One tap \u00A9 2026. All rights reserved.",
+    copyright: "One Tap \u00A9 2026. All rights reserved.",
     privacy: "Ch\u00EDnh s\u00E1ch b\u1EA3o m\u1EADt",
     terms: "\u0110i\u1EC1u kho\u1EA3n",
     disclaimer: "Mi\u1EC5n tr\u1EEB tr\u00E1ch nhi\u1EC7m",

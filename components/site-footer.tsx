@@ -1,14 +1,90 @@
 "use client";
 
-import { useT } from "@/lib/i18n/context";
+import { ExternalLink } from "lucide-react";
+import { getAddresses, getExplorerAddressUrl, hasDeployedContracts } from "@/lib/contracts/addresses";
+import { useLocale, useT } from "@/lib/i18n/context";
+import { CHAINS } from "@/lib/rpc/nodes";
+import { useRpc } from "@/lib/rpc/context";
+import {
+  DISCORD_URL,
+  MEDIUM_URL,
+  TELEGRAM_URL,
+  X_URL,
+  getContractsDocsUrl,
+  getDocsUrl,
+} from "@/lib/site-links";
 import { BrandLogo } from "./brand-logo";
+
+interface FooterLinkProps {
+  href: string;
+  label: string;
+  external?: boolean;
+  meta?: string;
+}
+
+function FooterLink({ href, label, external = false, meta }: FooterLinkProps) {
+  return (
+    <a
+      className="group inline-flex items-center gap-1.5 text-sm text-base-content/50 transition-colors hover:text-primary"
+      href={href}
+      target={external ? "_blank" : undefined}
+      rel={external ? "noopener noreferrer" : undefined}
+    >
+      <span>{label}</span>
+      {meta ? (
+        <span className="rounded-full border border-base-content/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-base-content/35 transition-colors group-hover:border-primary/20 group-hover:text-primary/70">
+          {meta}
+        </span>
+      ) : null}
+      {external ? (
+        <ExternalLink className="h-3.5 w-3.5 text-base-content/20 transition-colors group-hover:text-primary/60" />
+      ) : null}
+    </a>
+  );
+}
 
 export function SiteFooter() {
   const t = useT();
+  const [locale] = useLocale();
+  const { chain } = useRpc();
+
+  const chainId = CHAINS[chain].numericId;
+  const docsUrl = getDocsUrl(locale);
+  const contractsDocsUrl = getContractsDocsUrl(locale);
+  const addresses = getAddresses(chainId);
+  const contractHref = hasDeployedContracts(chainId)
+    ? getExplorerAddressUrl(chainId, addresses.factory)
+    : contractsDocsUrl;
+
+  const platformLinks = [
+    { href: "#ongoing", label: t.footer.ongoing },
+    { href: "#history", label: t.footer.history },
+    { href: "#ongoing", label: t.footer.myBets },
+    { href: "#history", label: t.footer.leaderboard },
+  ];
+
+  const supportLinks = [
+    { href: "#rules", label: t.footer.rules },
+    { href: docsUrl, label: t.footer.faq, external: true },
+    { href: TELEGRAM_URL, label: t.footer.contact, external: true },
+    {
+      href: contractHref,
+      label: t.footer.contractAddr,
+      external: true,
+      meta: chain === "sepolia" ? "Sepolia" : "Mainnet",
+    },
+  ];
+
+  const communityLinks = [
+    { href: TELEGRAM_URL, label: "Telegram" },
+    { href: DISCORD_URL, label: "Discord" },
+    { href: X_URL, label: "Twitter / X" },
+    { href: MEDIUM_URL, label: "Medium" },
+  ];
 
   return (
-    <footer className="footer bg-base-300/50 text-base-content/40 p-6 sm:p-10 border-t border-base-content/5 max-w-7xl mx-auto grid-cols-2 sm:grid-cols-none">
-      <aside>
+    <footer className="grid max-w-7xl grid-cols-1 gap-8 border-t border-base-content/5 bg-base-300/50 px-4 py-8 text-base-content/40 sm:grid-cols-2 sm:px-10 lg:grid-cols-[1.25fr_repeat(3,0.8fr)] lg:gap-10 lg:py-10">
+      <aside className="pr-0 lg:pr-6">
         <BrandLogo
           href="#top"
           showName
@@ -22,60 +98,41 @@ export function SiteFooter() {
           {t.footer.descSub}
         </p>
       </aside>
-      <nav>
-        <h6 className="footer-title text-base-content/60">
+      <nav className="space-y-3">
+        <h6 className="text-xs font-semibold uppercase tracking-[0.22em] text-base-content/60">
           {t.footer.platform}
         </h6>
-        <a className="link link-hover">{t.footer.ongoing}</a>
-        <a className="link link-hover">{t.footer.history}</a>
-        <a className="link link-hover">{t.footer.myBets}</a>
-        <a className="link link-hover">{t.footer.leaderboard}</a>
+        <div className="flex flex-col gap-2.5">
+          {platformLinks.map((link) => (
+            <FooterLink key={link.label} href={link.href} label={link.label} />
+          ))}
+        </div>
       </nav>
-      <nav>
-        <h6 className="footer-title text-base-content/60">
+      <nav className="space-y-3">
+        <h6 className="text-xs font-semibold uppercase tracking-[0.22em] text-base-content/60">
           {t.footer.support}
         </h6>
-        <a className="link link-hover">{t.footer.rules}</a>
-        <a className="link link-hover">{t.footer.faq}</a>
-        <a className="link link-hover">{t.footer.contact}</a>
-        <a className="link link-hover">{t.footer.contractAddr}</a>
+        <div className="flex flex-col gap-2.5">
+          {supportLinks.map((link) => (
+            <FooterLink
+              key={link.label}
+              href={link.href}
+              label={link.label}
+              external={link.external}
+              meta={link.meta}
+            />
+          ))}
+        </div>
       </nav>
-      <nav>
-        <h6 className="footer-title text-base-content/60">
+      <nav className="space-y-3">
+        <h6 className="text-xs font-semibold uppercase tracking-[0.22em] text-base-content/60">
           {t.footer.community}
         </h6>
-        <a
-          className="link link-hover"
-          href="https://t.me/onetappy_global_partner_channel"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Telegram
-        </a>
-        <a
-          className="link link-hover"
-          href="https://discord.com/invite/9Thj5CeBNw"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Discord
-        </a>
-        <a
-          className="link link-hover"
-          href="https://x.com/onetappy"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Twitter / X
-        </a>
-        <a
-          className="link link-hover"
-          href="https://medium.com/@onetappy/why-im-building-onetappy-transparent-raffles-one-tap-entry-and-partner-first-economics-831e2334f034"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Medium
-        </a>
+        <div className="flex flex-col gap-2.5">
+          {communityLinks.map((link) => (
+            <FooterLink key={link.label} href={link.href} label={link.label} external />
+          ))}
+        </div>
       </nav>
     </footer>
   );
