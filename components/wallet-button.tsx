@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import dynamic from "next/dynamic"
-import { Wallet, LogOut, Copy, ExternalLink, Check, RefreshCw, PlusCircle, AlertTriangle } from "lucide-react"
+import { Wallet, LogOut, Copy, ExternalLink, Check, RefreshCw, PlusCircle, AlertTriangle, Ticket } from "lucide-react"
 import Link from "next/link"
 import { useWallet } from "@/lib/wallet/context"
 import { useT } from "@/lib/i18n/context"
@@ -183,6 +183,13 @@ export function WalletButton() {
               {t.wallet.createTable}
             </Link>
           )}
+          <Link
+            href="/records"
+            className="btn btn-ghost btn-sm justify-start w-full gap-3 font-normal"
+          >
+            <Ticket className="h-4 w-4" />
+            {t.footer.myBets}
+          </Link>
           <button
             className="btn btn-ghost btn-sm justify-start w-full gap-3 font-normal"
             onClick={handleCopy}

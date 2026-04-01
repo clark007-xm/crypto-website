@@ -678,7 +678,7 @@ export function useCreateSession() {
 }
 
 /** SessionConfig from event - matches the Solidity struct */
-export interface SessionConfigFromEvent {
+export interface SessionCatalogFromEvent {
   chainId: number
   sessionAddress: string
   creator: string
@@ -695,12 +695,15 @@ export interface SessionConfigFromEvent {
   commitDurationSeconds: bigint
   revealDurationSeconds: bigint
   unlockTimestamp: bigint
-  ticketsSold: bigint
-  isSettled: boolean
-  settlementType: SessionSettlementType | null
   // Computed fields
   commitDeadline: bigint
   revealDeadline: bigint
+}
+
+export interface SessionConfigFromEvent extends SessionCatalogFromEvent {
+  ticketsSold: bigint
+  isSettled: boolean
+  settlementType: SessionSettlementType | null
 }
 
 export function useActiveSessions() {
@@ -828,6 +831,97 @@ export function useActiveSessions() {
       refresh()
     }
   }, [factory, refresh])
+
+  return { sessions, loading, refresh }
+}
+
+export function useAllSessionCatalog() {
+  const { readProvider, chain } = useRpc()
+  const [sessions, setSessions] = useState<SessionCatalogFromEvent[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const activeChainId = CHAINS[chain].numericId
+
+  const refresh = useCallback(async () => {
+    if (!readProvider || !hasDeployedContracts(activeChainId)) {
+      setSessions([])
+      return
+    }
+
+    setLoading(true)
+    try {
+      const { factory, deployBlock } = getAddresses(activeChainId)
+      const factoryContract = new Contract(factory, FACTORY_ABI, readProvider)
+      const currentBlock = await readProvider.getBlockNumber()
+      const maxBlocksPerQuery = 9000
+      const filter = factoryContract.filters.SessionCreated()
+      const allEvents: Awaited<ReturnType<typeof factoryContract.queryFilter>> = []
+
+      let fromBlock = deployBlock
+      while (fromBlock <= currentBlock) {
+        const toBlock = Math.min(fromBlock + maxBlocksPerQuery - 1, currentBlock)
+        const batchEvents = await factoryContract.queryFilter(filter, fromBlock, toBlock)
+        allEvents.push(...batchEvents)
+        fromBlock = toBlock + 1
+      }
+
+      const sessionCatalog = allEvents
+        .map((event) => {
+          try {
+            const parsed = factoryContract.interface.parseLog(event)
+            if (!parsed || parsed.name !== "SessionCreated") {
+              return null
+            }
+
+            const sessionAddress = parsed.args?.[1]
+            const config = parsed.args?.[2] as readonly unknown[] | undefined
+            if (typeof sessionAddress !== "string" || !config) {
+              return null
+            }
+
+            const commitDurationSeconds = BigInt((config[11] as bigint | number | string | undefined) ?? 0)
+            const revealDurationSeconds = BigInt((config[12] as bigint | number | string | undefined) ?? 0)
+            const unlockTimestamp = BigInt((config[13] as bigint | number | string | undefined) ?? 0)
+            const commitDeadline = unlockTimestamp + commitDurationSeconds
+            const revealDeadline = commitDeadline + revealDurationSeconds
+
+            return {
+              chainId: activeChainId,
+              sessionAddress,
+              admin: config[0] as string,
+              creator: config[1] as string,
+              sessionCommitment: config[2] as string,
+              treasury: config[3] as string,
+              paymentToken: config[4] as string,
+              ticketPrice: BigInt((config[5] as bigint | number | string | undefined) ?? 0),
+              totalTickets: BigInt((config[6] as bigint | number | string | undefined) ?? 0),
+              partnerShareBps: Number(config[7] ?? 0),
+              platformFeeBps: Number(config[8] ?? 0),
+              unsoldTicketsPartnerDepositSlashBps: Number(config[9] ?? 0),
+              creatorAbsentPartnerDepositSlashBps: Number(config[10] ?? 0),
+              commitDurationSeconds,
+              revealDurationSeconds,
+              unlockTimestamp,
+              commitDeadline,
+              revealDeadline,
+            } satisfies SessionCatalogFromEvent
+          } catch {
+            return null
+          }
+        })
+        .filter((session): session is SessionCatalogFromEvent => Boolean(session?.sessionAddress))
+
+      setSessions(sessionCatalog.reverse())
+    } catch {
+      setSessions([])
+    } finally {
+      setLoading(false)
+    }
+  }, [activeChainId, readProvider])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
 
   return { sessions, loading, refresh }
 }
@@ -1000,6 +1094,259 @@ export interface SessionPurchaseRecord {
   logIndex: number
 }
 
+export interface GlobalSessionPurchaseRecord extends SessionPurchaseRecord {
+  session: SessionCatalogFromEvent
+}
+
+interface PurchaseLogLike {
+  address: string
+  transactionHash: string
+  blockNumber: number
+  data: string
+  topics: readonly string[]
+  index?: number
+  logIndex?: number
+}
+
+interface PurchaseLogProvider {
+  getLogs(filter: {
+    address: string | string[]
+    fromBlock: number
+    toBlock: number
+    topics: ReturnType<Interface["encodeFilterTopics"]>
+  }): Promise<PurchaseLogLike[]>
+}
+
+interface PurchaseLogBatchRequest {
+  sessionAddresses: string[]
+  fromBlock: number
+  toBlock: number
+}
+
+const PURCHASE_LOG_BLOCK_RANGE = 9000
+const PURCHASE_LOG_ADDRESS_CHUNK_SIZE = 25
+const PURCHASE_LOG_CONCURRENCY = 6
+
+function chunkValues<T>(values: T[], size: number) {
+  const chunks: T[][] = []
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size))
+  }
+  return chunks
+}
+
+function buildBlockRanges(fromBlock: number, toBlock: number, size: number) {
+  const ranges: Array<{ fromBlock: number; toBlock: number }> = []
+  let currentFromBlock = fromBlock
+
+  while (currentFromBlock <= toBlock) {
+    const currentToBlock = Math.min(currentFromBlock + size - 1, toBlock)
+    ranges.push({ fromBlock: currentFromBlock, toBlock: currentToBlock })
+    currentFromBlock = currentToBlock + 1
+  }
+
+  return ranges
+}
+
+async function runTasksWithConcurrency<T>(
+  tasks: Array<() => Promise<T>>,
+  limit: number
+): Promise<PromiseSettledResult<T>[]> {
+  if (tasks.length === 0) return []
+
+  const results = new Array<PromiseSettledResult<T>>(tasks.length)
+  let nextTaskIndex = 0
+
+  async function worker() {
+    while (nextTaskIndex < tasks.length) {
+      const currentIndex = nextTaskIndex
+      nextTaskIndex += 1
+
+      try {
+        results[currentIndex] = {
+          status: "fulfilled",
+          value: await tasks[currentIndex](),
+        }
+      } catch (error) {
+        results[currentIndex] = {
+          status: "rejected",
+          reason: error,
+        }
+      }
+    }
+  }
+
+  const workerCount = Math.min(limit, tasks.length)
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  return results
+}
+
+async function loadBlockTimestampMap(
+  provider: { getBlock: (blockNumber: number) => Promise<{ timestamp?: number } | null> },
+  blockNumbers: number[]
+) {
+  const blockEntries = await Promise.all(
+    blockNumbers.map(async (blockNumber) => {
+      const block = await provider.getBlock(blockNumber)
+      return [blockNumber, block?.timestamp ?? 0] as const
+    })
+  )
+  return new Map<number, number>(blockEntries)
+}
+
+async function querySessionPurchaseEvents(currentSession: Contract, playerAddress: string) {
+  const filter = currentSession.filters.TicketsPurchased(playerAddress)
+  return currentSession.queryFilter(filter)
+}
+
+async function loadPurchaseLogsForBatch(
+  provider: PurchaseLogProvider,
+  request: PurchaseLogBatchRequest,
+  topics: ReturnType<Interface["encodeFilterTopics"]>
+) {
+  try {
+    return await provider.getLogs({
+      address: request.sessionAddresses,
+      fromBlock: request.fromBlock,
+      toBlock: request.toBlock,
+      topics,
+    })
+  } catch {
+    return provider.getLogs({
+      address: request.sessionAddresses,
+      fromBlock: request.fromBlock,
+      toBlock: request.toBlock,
+      topics,
+    })
+  }
+}
+
+async function queryPurchaseLogsAcrossSessions(
+  provider: PurchaseLogProvider,
+  sessionAddresses: string[],
+  playerAddress: string,
+  fromBlock: number,
+  toBlock: number
+) {
+  if (sessionAddresses.length === 0 || fromBlock > toBlock) {
+    return [] as PurchaseLogLike[]
+  }
+
+  const topics = SESSION_INTERFACE.encodeFilterTopics("TicketsPurchased", [playerAddress])
+  const addressChunks = chunkValues(sessionAddresses, PURCHASE_LOG_ADDRESS_CHUNK_SIZE)
+  const blockRanges = buildBlockRanges(fromBlock, toBlock, PURCHASE_LOG_BLOCK_RANGE)
+  const requests = addressChunks.flatMap((addresses) =>
+    blockRanges.map(
+      (range) =>
+        ({
+          sessionAddresses: addresses,
+          fromBlock: range.fromBlock,
+          toBlock: range.toBlock,
+        }) satisfies PurchaseLogBatchRequest
+    )
+  )
+
+  const primaryResults = await runTasksWithConcurrency(
+    requests.map((request) => () => loadPurchaseLogsForBatch(provider, request, topics)),
+    PURCHASE_LOG_CONCURRENCY
+  )
+
+  const logs: PurchaseLogLike[] = []
+  const fallbackRequests: PurchaseLogBatchRequest[] = []
+
+  primaryResults.forEach((result, index) => {
+    if (result.status === "fulfilled") {
+      logs.push(...result.value)
+      return
+    }
+
+    const request = requests[index]
+    if (request.sessionAddresses.length <= 1) {
+      return
+    }
+
+    fallbackRequests.push(
+      ...request.sessionAddresses.map(
+        (sessionAddress) =>
+          ({
+            sessionAddresses: [sessionAddress],
+            fromBlock: request.fromBlock,
+            toBlock: request.toBlock,
+          }) satisfies PurchaseLogBatchRequest
+      )
+    )
+  })
+
+  if (fallbackRequests.length > 0) {
+    const fallbackResults = await runTasksWithConcurrency(
+      fallbackRequests.map((request) => () => loadPurchaseLogsForBatch(provider, request, topics)),
+      PURCHASE_LOG_CONCURRENCY
+    )
+
+    fallbackResults.forEach((result) => {
+      if (result.status === "fulfilled") {
+        logs.push(...result.value)
+      }
+    })
+  }
+
+  return Array.from(
+    new Map(
+      logs.map((log) => [
+        `${log.address.toLowerCase()}-${log.transactionHash}-${Number(log.index ?? log.logIndex ?? 0)}`,
+        log,
+      ])
+    ).values()
+  )
+}
+
+function parseSessionPurchaseEvents(
+  currentSession: Contract,
+  events: Awaited<ReturnType<Contract["queryFilter"]>>,
+  blockTimestampMap: Map<number, number>
+) {
+  return events
+    .map((event) => {
+      try {
+        const parsed = currentSession.interface.parseLog(event)
+        if (!parsed || parsed.name !== "TicketsPurchased") {
+          return null
+        }
+
+        const quantity = BigInt(
+          (parsed.args?.quantity ?? parsed.args?.[1] ?? 0) as bigint | number | string
+        )
+        const nextIndex = BigInt(
+          (parsed.args?.nextIndex ?? parsed.args?.[2] ?? 0) as bigint | number | string
+        )
+        const firstTicketIndex = nextIndex >= quantity ? nextIndex - quantity : 0n
+        const lastTicketIndex = nextIndex > 0n ? nextIndex - 1n : 0n
+
+        return {
+          transactionHash: event.transactionHash,
+          blockNumber: event.blockNumber,
+          blockTimestamp: blockTimestampMap.get(event.blockNumber) ?? 0,
+          quantity,
+          nextIndex,
+          firstTicketIndex,
+          lastTicketIndex,
+          logIndex: Number(
+            (event as { logIndex?: number; index?: number }).logIndex ??
+              (event as { index?: number }).index ??
+              0
+          ),
+        } satisfies SessionPurchaseRecord
+      } catch {
+        return null
+      }
+    })
+    .filter((record): record is SessionPurchaseRecord => Boolean(record))
+    .sort((a, b) => {
+      if (b.blockNumber !== a.blockNumber) return b.blockNumber - a.blockNumber
+      return b.logIndex - a.logIndex
+    })
+}
+
 export function useSessionPurchaseHistory(sessionAddress: string | null) {
   const { address } = useWallet()
   const session = useSessionContract(sessionAddress)
@@ -1025,8 +1372,7 @@ export function useSessionPurchaseHistory(sessionAddress: string | null) {
         return
       }
 
-      const filter = currentSession.filters.TicketsPurchased(address)
-      const events = await currentSession.queryFilter(filter)
+      const events = await querySessionPurchaseEvents(currentSession, address)
       const uniqueBlockNumbers = [
         ...new Set(
           events
@@ -1034,54 +1380,12 @@ export function useSessionPurchaseHistory(sessionAddress: string | null) {
             .filter((value): value is number => typeof value === "number")
         ),
       ]
-      const blockEntries = await Promise.all(
-        uniqueBlockNumbers.map(async (blockNumber) => {
-          const block = await provider.getBlock(blockNumber)
-          return [blockNumber, block?.timestamp ?? 0] as const
-        })
+      const blockTimestampMap = await loadBlockTimestampMap(provider, uniqueBlockNumbers)
+      const purchaseRecords = parseSessionPurchaseEvents(
+        currentSession,
+        events,
+        blockTimestampMap
       )
-      const blockTimestampMap = new Map<number, number>(blockEntries)
-
-      const purchaseRecords = events
-        .map((event) => {
-          try {
-            const parsed = currentSession.interface.parseLog(event)
-            if (!parsed || parsed.name !== "TicketsPurchased") {
-              return null
-            }
-
-            const quantity = BigInt(
-              (parsed.args?.quantity ?? parsed.args?.[1] ?? 0) as bigint | number | string
-            )
-            const nextIndex = BigInt(
-              (parsed.args?.nextIndex ?? parsed.args?.[2] ?? 0) as bigint | number | string
-            )
-            const firstTicketIndex = nextIndex >= quantity ? nextIndex - quantity : 0n
-            const lastTicketIndex = nextIndex > 0n ? nextIndex - 1n : 0n
-
-            return {
-              transactionHash: event.transactionHash,
-              blockNumber: event.blockNumber,
-              blockTimestamp: blockTimestampMap.get(event.blockNumber) ?? 0,
-              quantity,
-              nextIndex,
-              firstTicketIndex,
-              lastTicketIndex,
-              logIndex: Number(
-                (event as { logIndex?: number; index?: number }).logIndex ??
-                  (event as { index?: number }).index ??
-                  0
-              ),
-            } satisfies SessionPurchaseRecord
-          } catch {
-            return null
-          }
-        })
-        .filter((record): record is SessionPurchaseRecord => Boolean(record))
-        .sort((a, b) => {
-          if (b.blockNumber !== a.blockNumber) return b.blockNumber - a.blockNumber
-          return b.logIndex - a.logIndex
-        })
 
       setRecords(purchaseRecords)
       lastFetchKey.current = `${sessionAddress}-${address}`
@@ -1100,6 +1404,123 @@ export function useSessionPurchaseHistory(sessionAddress: string | null) {
   }, [session, address, sessionAddress, refresh])
 
   return { records, loading, refresh }
+}
+
+export function useAllPurchaseHistory() {
+  const { address, status } = useWallet()
+  const { readProvider } = useRpc()
+  const { sessions, loading: sessionsLoading, refresh: refreshSessions } = useAllSessionCatalog()
+  const [records, setRecords] = useState<GlobalSessionPurchaseRecord[]>([])
+  const [loading, setLoading] = useState(false)
+  const lastFetchKey = useRef<string | null>(null)
+
+  const refresh = useCallback(async () => {
+    if (!readProvider || !address) {
+      setRecords([])
+      return
+    }
+
+    if (sessions.length === 0) {
+      setRecords([])
+      lastFetchKey.current = `${address}-`
+      return
+    }
+
+    setLoading(true)
+    try {
+      const sessionMap = new Map(
+        sessions.map((session) => [session.sessionAddress.toLowerCase(), session] as const)
+      )
+      const { deployBlock } = getAddresses(sessions[0].chainId)
+      const currentBlock = await readProvider.getBlockNumber()
+      const logs = await queryPurchaseLogsAcrossSessions(
+        readProvider,
+        sessions.map((session) => session.sessionAddress),
+        address,
+        deployBlock,
+        currentBlock
+      )
+      const uniqueBlockNumbers = [
+        ...new Set(logs.map((log) => log.blockNumber).filter((value) => typeof value === "number")),
+      ]
+      const blockTimestampMap = await loadBlockTimestampMap(readProvider, uniqueBlockNumbers)
+      const nextRecords = logs
+        .map((log) => {
+          try {
+            const parsed = SESSION_INTERFACE.parseLog(log)
+            if (!parsed || parsed.name !== "TicketsPurchased") {
+              return null
+            }
+
+            const session = sessionMap.get(log.address.toLowerCase())
+            if (!session) {
+              return null
+            }
+
+            const quantity = BigInt(
+              (parsed.args?.quantity ?? parsed.args?.[1] ?? 0) as bigint | number | string
+            )
+            const nextIndex = BigInt(
+              (parsed.args?.nextIndex ?? parsed.args?.[2] ?? 0) as bigint | number | string
+            )
+            const firstTicketIndex = nextIndex >= quantity ? nextIndex - quantity : 0n
+            const lastTicketIndex = nextIndex > 0n ? nextIndex - 1n : 0n
+
+            return {
+              transactionHash: log.transactionHash,
+              blockNumber: log.blockNumber,
+              blockTimestamp: blockTimestampMap.get(log.blockNumber) ?? 0,
+              quantity,
+              nextIndex,
+              firstTicketIndex,
+              lastTicketIndex,
+              logIndex: Number(log.logIndex ?? log.index ?? 0),
+              session,
+            } satisfies GlobalSessionPurchaseRecord
+          } catch {
+            return null
+          }
+        })
+        .filter((record): record is GlobalSessionPurchaseRecord => Boolean(record))
+        .sort((a, b) => {
+          if (b.blockNumber !== a.blockNumber) return b.blockNumber - a.blockNumber
+          return b.logIndex - a.logIndex
+        })
+
+      setRecords(nextRecords)
+      lastFetchKey.current = `${address}-${sessions.map((session) => session.sessionAddress).join(",")}`
+    } catch {
+      setRecords([])
+    } finally {
+      setLoading(false)
+    }
+  }, [address, readProvider, sessions])
+
+  useEffect(() => {
+    if (status !== "connected") {
+      setRecords([])
+      lastFetchKey.current = null
+      return
+    }
+
+    if (!address || !readProvider || sessionsLoading) return
+
+    const key = `${address}-${sessions.map((session) => session.sessionAddress).join(",")}`
+    if (lastFetchKey.current !== key) {
+      void refresh()
+    }
+  }, [address, readProvider, refresh, sessions, sessionsLoading, status])
+
+  const refreshAll = useCallback(async () => {
+    lastFetchKey.current = null
+    await refreshSessions()
+  }, [refreshSessions])
+
+  return {
+    records,
+    loading: sessionsLoading || loading,
+    refresh: refreshAll,
+  }
 }
 
 /* ════════════════════════════════════════════════════════════════════════════

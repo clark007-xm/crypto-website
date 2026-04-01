@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { usePathname } from "next/navigation"
 import { Globe } from "lucide-react"
 import { useT, useLocale } from "@/lib/i18n/context"
 import type { Locale } from "@/lib/i18n/types"
@@ -24,6 +25,14 @@ export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const t = useT()
   const [locale, setLocale] = useLocale()
+  const pathname = usePathname()
+
+  const getHomeHref = (section: "top" | "ongoing" | "history" | "rules") => {
+    if (section === "top") {
+      return pathname === "/" ? "#top" : "/"
+    }
+    return pathname === "/" ? `#${section}` : `/#${section}`
+  }
 
   return (
     <div className="navbar bg-base-300/80 backdrop-blur-xl sticky top-0 z-50 border-b border-base-content/5 px-2 sm:px-4 min-h-[3.5rem]">
@@ -45,15 +54,15 @@ export function Navbar() {
               tabIndex={0}
               className="menu menu-sm dropdown-content bg-base-300 rounded-box z-10 mt-3 w-52 p-2 shadow-lg border border-base-content/5"
             >
-              <li><a href="#top" onClick={() => setMobileOpen(false)}>{t.nav.home}</a></li>
-              <li><a href="#ongoing" onClick={() => setMobileOpen(false)}>{t.nav.ongoing}</a></li>
-              <li><a href="#history" onClick={() => setMobileOpen(false)}>{t.nav.history}</a></li>
-              <li><a href="#rules" onClick={() => setMobileOpen(false)}>{t.nav.rules}</a></li>
+              <li><a href={getHomeHref("top")} onClick={() => setMobileOpen(false)}>{t.nav.home}</a></li>
+              <li><a href={getHomeHref("ongoing")} onClick={() => setMobileOpen(false)}>{t.nav.ongoing}</a></li>
+              <li><a href={getHomeHref("history")} onClick={() => setMobileOpen(false)}>{t.nav.history}</a></li>
+              <li><a href={getHomeHref("rules")} onClick={() => setMobileOpen(false)}>{t.nav.rules}</a></li>
             </ul>
           )}
         </div>
         <BrandLogo
-          href="#top"
+          href={getHomeHref("top")}
           priority
           showName
           className="btn btn-ghost gap-2 px-1 sm:px-3 hover:bg-transparent"
@@ -65,10 +74,10 @@ export function Navbar() {
       {/* Center: desktop nav */}
       <div className="navbar-center hidden lg:flex">
         <ul className="menu menu-horizontal px-1 gap-1">
-          <li><a href="#top" className="hover:text-primary focus:text-primary">{t.nav.home}</a></li>
-          <li><a href="#ongoing" className="hover:text-primary focus:text-primary">{t.nav.ongoing}</a></li>
-          <li><a href="#history" className="hover:text-primary focus:text-primary">{t.nav.history}</a></li>
-          <li><a href="#rules" className="hover:text-primary focus:text-primary">{t.nav.rules}</a></li>
+          <li><a href={getHomeHref("top")} className="hover:text-primary focus:text-primary">{t.nav.home}</a></li>
+          <li><a href={getHomeHref("ongoing")} className="hover:text-primary focus:text-primary">{t.nav.ongoing}</a></li>
+          <li><a href={getHomeHref("history")} className="hover:text-primary focus:text-primary">{t.nav.history}</a></li>
+          <li><a href={getHomeHref("rules")} className="hover:text-primary focus:text-primary">{t.nav.rules}</a></li>
         </ul>
       </div>
 

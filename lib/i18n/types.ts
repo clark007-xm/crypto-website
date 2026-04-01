@@ -264,6 +264,14 @@ export interface Dictionary {
     claimFailed: string
     noTickets: string
     alreadyClaimed: string
+    allPurchaseHistory: string
+    allPurchaseHistoryDesc: string
+    connectToViewAllRecords: string
+    noGlobalPurchaseHistory: string
+    noGlobalPurchaseHistoryDesc: string
+    sessionCount: string
+    sessionAddress: string
+    openSession: string
     purchaseHistory: string
     purchaseHistoryDesc: string
     connectToViewRecords: string

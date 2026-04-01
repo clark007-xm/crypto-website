@@ -13,7 +13,6 @@ import type { ChainId, NodeHealth, RpcNode } from "./nodes"
 import { CHAINS, DEFAULT_CHAIN, getAvailableChains, getNodesByChain } from "./nodes"
 
 /* ── constants ── */
-const HEALTH_INTERVAL = 30_000
 const PING_TIMEOUT = 5_000
 const SLOW_THRESHOLD = 800
 
@@ -121,6 +120,7 @@ export function RpcProvider({ children }: { children: React.ReactNode }) {
   /* ── update read provider when active node changes ── */
   useEffect(() => {
     const p = new JsonRpcProvider(activeNode.url, undefined, {
+      polling: false,
       staticNetwork: true,
       batchMaxCount: 1, // Disable batching - DRPC free tier limits to 3 batch requests
     })
@@ -163,9 +163,18 @@ export function RpcProvider({ children }: { children: React.ReactNode }) {
   }, [chain, benchmarkAll])
 
   useEffect(() => {
-    benchmarkAll()
-    const interval = setInterval(benchmarkAll, HEALTH_INTERVAL)
-    return () => clearInterval(interval)
+    void benchmarkAll()
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void benchmarkAll()
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
   }, [benchmarkAll])
 
   /* ── chain switching ── */

@@ -9,111 +9,19 @@ import { getExplorerTxUrl } from "@/lib/contracts/addresses"
 import {
   useSessionPurchaseHistory,
   type SessionConfigFromEvent,
-  type SessionPurchaseRecord,
 } from "@/lib/contracts/hooks"
+import {
+  formatTicketRange,
+  loadLocalPurchaseRecords,
+  mergePurchaseHistory,
+  shortHash,
+  type LocalPurchaseRecord,
+} from "@/lib/purchase-history"
 import { useWallet } from "@/lib/wallet/context"
 
 interface SessionPurchaseHistoryProps {
   session: SessionConfigFromEvent
   refreshNonce?: number
-}
-
-interface LocalPurchaseRecord {
-  secret: string
-  commitment: string
-  quantity: number
-  timestamp: number
-  txHash?: string
-  useBalance?: boolean
-  ticketPriceWei?: string
-  paymentToken?: string
-  buyer?: string
-}
-
-interface PurchaseHistoryItem extends SessionPurchaseRecord {
-  localDetails: LocalPurchaseRecord | null
-}
-
-function loadLocalPurchaseRecords(sessionAddress: string, buyerAddress: string | null) {
-  if (typeof window === "undefined") return []
-
-  try {
-    const raw = localStorage.getItem(`onetap_secrets_${sessionAddress}`)
-    if (!raw) return []
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-
-    return parsed
-      .filter((item): item is LocalPurchaseRecord => {
-        if (!item || typeof item !== "object") return false
-        const candidate = item as Partial<LocalPurchaseRecord>
-        if (typeof candidate.secret !== "string") return false
-        if (typeof candidate.commitment !== "string") return false
-        if (typeof candidate.quantity !== "number") return false
-        if (candidate.buyer && buyerAddress) {
-          return candidate.buyer.toLowerCase() === buyerAddress.toLowerCase()
-        }
-        return true
-      })
-      .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
-  } catch {
-    return []
-  }
-}
-
-function matchLocalPurchaseRecord(
-  record: SessionPurchaseRecord,
-  localRecords: LocalPurchaseRecord[],
-  usedIndexes: Set<number>
-) {
-  const txHash = record.transactionHash.toLowerCase()
-  const exactTxIndex = localRecords.findIndex(
-    (item, index) => !usedIndexes.has(index) && item.txHash?.toLowerCase() === txHash
-  )
-  if (exactTxIndex >= 0) {
-    usedIndexes.add(exactTxIndex)
-    return localRecords[exactTxIndex]
-  }
-
-  const recordTimestampMs = record.blockTimestamp * 1000
-  const quantity = Number(record.quantity)
-  const candidates = localRecords
-    .map((item, index) => ({ item, index }))
-    .filter(({ item, index }) => !usedIndexes.has(index) && item.quantity === quantity)
-    .sort((a, b) => {
-      const aDiff = Math.abs((a.item.timestamp ?? 0) - recordTimestampMs)
-      const bDiff = Math.abs((b.item.timestamp ?? 0) - recordTimestampMs)
-      return aDiff - bDiff
-    })
-
-  if (candidates.length === 0) return null
-
-  usedIndexes.add(candidates[0].index)
-  return candidates[0].item
-}
-
-function mergePurchaseHistory(
-  chainRecords: SessionPurchaseRecord[],
-  localRecords: LocalPurchaseRecord[]
-) {
-  const usedIndexes = new Set<number>()
-
-  return chainRecords.map((record) => ({
-    ...record,
-    localDetails: matchLocalPurchaseRecord(record, localRecords, usedIndexes),
-  })) satisfies PurchaseHistoryItem[]
-}
-
-function formatTicketRange(firstTicketIndex: bigint, lastTicketIndex: bigint) {
-  if (firstTicketIndex === lastTicketIndex) {
-    return `#${firstTicketIndex.toString()}`
-  }
-  return `#${firstTicketIndex.toString()} - #${lastTicketIndex.toString()}`
-}
-
-function shortHash(hash: string) {
-  return `${hash.slice(0, 10)}...${hash.slice(-8)}`
 }
 
 export function SessionPurchaseHistory({

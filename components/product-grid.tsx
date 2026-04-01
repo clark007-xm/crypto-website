@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import { SessionCard } from "./session-card"
 import { useT } from "@/lib/i18n/context"
 import { getSessionPhaseState, useActiveSessions } from "@/lib/contracts/hooks"
@@ -9,12 +9,31 @@ import { RefreshCw, Inbox } from "lucide-react"
 export function ProductGrid() {
   const t = useT()
   const { sessions, loading, refresh } = useActiveSessions()
+  const lastAutoRefreshAt = useRef(0)
 
-  // Auto-refresh every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(refresh, 30000)
-    return () => clearInterval(interval)
+  // Refresh on focus/visibility return instead of fixed polling.
+  const refreshWhenStale = useCallback(() => {
+    const now = Date.now()
+    if (now - lastAutoRefreshAt.current < 15_000) return
+    lastAutoRefreshAt.current = now
+    void refresh()
   }, [refresh])
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshWhenStale()
+      }
+    }
+
+    window.addEventListener("focus", refreshWhenStale)
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener("focus", refreshWhenStale)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }, [refreshWhenStale])
   
   // Sort sessions: active (commit phase) first, then by deadline
   const sortedSessions = useMemo(() => {

@@ -1,7 +1,12 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { ExternalLink } from "lucide-react";
-import { getAddresses, getExplorerAddressUrl, hasDeployedContracts } from "@/lib/contracts/addresses";
+import {
+  getAddresses,
+  getExplorerAddressUrl,
+  hasDeployedContracts,
+} from "@/lib/contracts/addresses";
 import { useLocale, useT } from "@/lib/i18n/context";
 import { CHAINS } from "@/lib/rpc/nodes";
 import { useRpc } from "@/lib/rpc/context";
@@ -47,6 +52,7 @@ export function SiteFooter() {
   const t = useT();
   const [locale] = useLocale();
   const { chain } = useRpc();
+  const pathname = usePathname();
 
   const chainId = CHAINS[chain].numericId;
   const docsUrl = getDocsUrl(locale);
@@ -55,18 +61,24 @@ export function SiteFooter() {
   const contractHref = hasDeployedContracts(chainId)
     ? getExplorerAddressUrl(chainId, addresses.factory)
     : contractsDocsUrl;
+  const getHomeHref = (section: "top" | "ongoing" | "history" | "rules") => {
+    if (section === "top") {
+      return pathname === "/" ? "#top" : "/"
+    }
+    return pathname === "/" ? `#${section}` : `/#${section}`
+  }
 
   const platformLinks = [
-    { href: "#ongoing", label: t.footer.ongoing },
-    { href: "#history", label: t.footer.history },
-    { href: "#ongoing", label: t.footer.myBets },
-    { href: "#history", label: t.footer.leaderboard },
+    { href: getHomeHref("ongoing"), label: t.footer.ongoing },
+    { href: getHomeHref("history"), label: t.footer.history },
+    { href: "/records", label: t.footer.myBets },
+    { href: getHomeHref("history"), label: t.footer.leaderboard },
   ];
 
   const supportLinks = [
-    { href: "#rules", label: t.footer.rules },
-    { href: docsUrl, label: t.footer.faq, external: true },
-    { href: TELEGRAM_URL, label: t.footer.contact, external: true },
+    { href: getHomeHref("rules"), label: t.footer.rules },
+    // { href: docsUrl, label: t.footer.faq, external: true },
+    // { href: TELEGRAM_URL, label: t.footer.contact, external: true },
     {
       href: contractHref,
       label: t.footer.contractAddr,
@@ -86,7 +98,7 @@ export function SiteFooter() {
     <footer className="grid max-w-7xl grid-cols-1 gap-8 border-t border-base-content/5 bg-base-300/50 px-4 py-8 text-base-content/40 sm:grid-cols-2 sm:px-10 lg:grid-cols-[1.25fr_repeat(3,0.8fr)] lg:gap-10 lg:py-10">
       <aside className="pr-0 lg:pr-6">
         <BrandLogo
-          href="#top"
+          href={getHomeHref("top")}
           showName
           className="inline-flex items-center gap-3 mb-3"
           imageClassName="h-8 w-auto sm:h-10"
@@ -130,7 +142,12 @@ export function SiteFooter() {
         </h6>
         <div className="flex flex-col gap-2.5">
           {communityLinks.map((link) => (
-            <FooterLink key={link.label} href={link.href} label={link.label} external />
+            <FooterLink
+              key={link.label}
+              href={link.href}
+              label={link.label}
+              external
+            />
           ))}
         </div>
       </nav>

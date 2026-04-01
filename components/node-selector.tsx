@@ -155,7 +155,7 @@ function NodeListContent({
 }
 
 export function NodeSelector() {
-  const { chain, activeNode, autoMode, healths, ready } = useRpc()
+  const { chain, activeNode, autoMode, healths, ready, refreshAll } = useRpc()
   const t = useT()
 
   const [desktopOpen, setDesktopOpen] = useState(false)
@@ -196,12 +196,19 @@ export function NodeSelector() {
       : ""
 
   const openMobileModal = useCallback(() => {
+    refreshAll()
     mobileDialogRef.current?.showModal()
-  }, [])
+  }, [refreshAll])
 
   const closeMobileModal = useCallback(() => {
     mobileDialogRef.current?.close()
   }, [])
+
+  useEffect(() => {
+    if (desktopOpen) {
+      refreshAll()
+    }
+  }, [desktopOpen, refreshAll])
 
   return (
     <>
