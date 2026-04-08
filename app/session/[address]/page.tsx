@@ -9,8 +9,8 @@ import Link from "next/link"
 import { useT } from "@/lib/i18n/context"
 import {
   getSessionPhaseState,
-  useActiveSessions,
   usePlayerTickets,
+  useSessionCatalogEntry,
   useSessionInfo,
 } from "@/lib/contracts/hooks"
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
@@ -29,19 +29,23 @@ export default function SessionDetailPage() {
   const sessionAddress = params.address as string
   const t = useT()
   
-  // Fetch all sessions and find the current one
-  const { sessions, loading: sessionsLoading } = useActiveSessions()
+  // Fetch only the current session catalog entry instead of loading the whole list.
+  const { session: sessionCatalog, loading: sessionCatalogLoading } = useSessionCatalogEntry(sessionAddress)
   const { info: sessionInfo, refresh: refreshSessionInfo } = useSessionInfo(sessionAddress)
   const { tickets: playerTicketCount, refresh: refreshPlayerTickets } = usePlayerTickets(sessionAddress)
-  const session = useMemo(() => {
-    return sessions.find(s => s.sessionAddress.toLowerCase() === sessionAddress?.toLowerCase())
-  }, [sessions, sessionAddress])
   const resolvedSession = useMemo(() => {
-    if (!session) return null
-    if (!sessionInfo) return session
+    if (!sessionCatalog) return null
+    if (!sessionInfo) {
+      return {
+        ...sessionCatalog,
+        ticketsSold: 0n,
+        isSettled: false,
+        settlementType: null,
+      }
+    }
 
     return {
-      ...session,
+      ...sessionCatalog,
       ticketPrice: sessionInfo.ticketPrice,
       totalTickets: sessionInfo.totalTickets,
       paymentToken: sessionInfo.paymentToken,
@@ -54,7 +58,7 @@ export default function SessionDetailPage() {
       commitDeadline: sessionInfo.commitDeadline,
       revealDeadline: sessionInfo.revealDeadline,
     }
-  }, [session, sessionInfo])
+  }, [sessionCatalog, sessionInfo])
   
   // Buy modal state
   const [buyModalOpen, setBuyModalOpen] = useState(false)
@@ -128,7 +132,7 @@ export default function SessionDetailPage() {
   }, [router])
   
   // Loading state
-  if (sessionsLoading) {
+  if (sessionCatalogLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -360,7 +364,11 @@ export default function SessionDetailPage() {
         
         {/* Creator management panel */}
         {resolvedSession && (
-          <CreatorPanel session={resolvedSession} ticketsSold={ticketsSold} />
+          <CreatorPanel
+            session={resolvedSession}
+            ticketsSold={ticketsSold}
+            onSettlementStateChange={refreshSessionInfo}
+          />
         )}
         
         {/* Player claim panel - shows when unsold settlement is complete */}

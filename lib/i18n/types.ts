@@ -145,6 +145,14 @@ export interface Dictionary {
     progressSent: string
     progressSuccess: string
     progressError: string
+    errorRejected: string
+    errorAlreadySettled: string
+    errorUnauthorized: string
+    errorActionUnavailable: string
+    errorIncorrectAmount: string
+    errorInsufficientBalance: string
+    errorInvalidInput: string
+    errorContractRejected: string
   }
   rpc: {
     network: string
@@ -233,6 +241,17 @@ export interface Dictionary {
     sessionSettled: string
     // Creator management
     creatorPanel: string
+    normalReveal: string
+    normalRevealDesc: string
+    revealNow: string
+    revealing: string
+    revealSuccess: string
+    revealWindowEnded: string
+    revealSecretRequired: string
+    secretMismatch: string
+    localCreatorSecretFound: string
+    localCreatorSecretSavedAt: string
+    useLocalBackup: string
     unsoldSettlement: string
     unsoldSettlementDesc: string
     ticketsSold: string

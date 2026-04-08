@@ -13,6 +13,8 @@ import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, SendHorizonal, Wall
 import type { ContractTransactionResponse } from "ethers"
 import { useT } from "@/lib/i18n/context"
 import { getExplorerTxUrl } from "@/lib/contracts/addresses"
+import { decodeContractError, isWalletRejectedError } from "@/lib/contracts/errors"
+import type { Dictionary } from "@/lib/i18n/types"
 import type { TransactionLifecycleCallbacks } from "@/lib/transactions/types"
 
 type TransactionStage = "awaiting" | "submitted" | "success" | "error"
@@ -48,10 +50,51 @@ interface TransactionFlowContextValue {
 
 const TransactionFlowContext = createContext<TransactionFlowContextValue | null>(null)
 
-function formatTransactionError(error: unknown) {
-  if (typeof error === "string") return error
-  if (error instanceof Error) return error.message
-  return null
+function formatTransactionError(error: unknown, t: Dictionary) {
+  if (isWalletRejectedError(error)) {
+    return t.tx.errorRejected
+  }
+
+  const decoded = decodeContractError(error)
+  if (decoded) {
+    switch (decoded.name) {
+      case "AlreadySettled":
+        return t.tx.errorAlreadySettled
+      case "Unauthorized":
+      case "NotPartner":
+      case "NotAnAuthorizedPartner":
+        return t.tx.errorUnauthorized
+      case "TimeConstraintError":
+      case "SessionStatusError":
+        return t.tx.errorActionUnavailable
+      case "IncorrectETHAmount":
+        return t.tx.errorIncorrectAmount
+      case "InsufficientBalance":
+      case "InsufficientDeposit":
+        return t.tx.errorInsufficientBalance
+      case "InvalidAddress":
+      case "InvalidAmount":
+      case "InvalidBPS":
+      case "InvalidZeroInput":
+      case "ZeroAddress":
+        return t.tx.errorInvalidInput
+      case "InvalidReveal":
+        return t.session.secretMismatch
+      case "SoldOut":
+        return t.session.allTicketsSold
+      case "NoTicketsOwned":
+        return t.session.noTickets
+      default:
+        return t.tx.errorContractRejected
+    }
+  }
+
+  const message = typeof error === "string" ? error : error instanceof Error ? error.message : ""
+  if (message.toLowerCase().includes("insufficient funds")) {
+    return t.tx.errorInsufficientBalance
+  }
+
+  return t.tx.errorContractRejected
 }
 
 export function TransactionFlowProvider({ children }: { children: ReactNode }) {
@@ -105,12 +148,12 @@ export function TransactionFlowProvider({ children }: { children: ReactNode }) {
             setStage("success", tx)
           },
           onError: (error) => {
-            setStage("error", null, formatTransactionError(error))
+            setStage("error", null, formatTransactionError(error, t))
           },
         },
       }
     },
-    [updateState]
+    [t, updateState]
   )
 
   const close = useCallback(() => {
@@ -157,7 +200,7 @@ export function TransactionFlowProvider({ children }: { children: ReactNode }) {
         ? t.tx.sentSubtitle
         : state?.stage === "success"
           ? t.tx.successSubtitle
-          : state?.errorMessage ?? t.tx.errorSubtitle
+          : t.tx.errorSubtitle
 
   const Icon =
     state?.stage === "awaiting"
@@ -181,18 +224,21 @@ export function TransactionFlowProvider({ children }: { children: ReactNode }) {
       {state?.visible && (
         <>
           <div className="fixed inset-0 z-[80] bg-black/55 backdrop-blur-sm" onClick={close} />
-          <div className="fixed inset-x-0 bottom-0 z-[81] md:inset-0 md:flex md:items-center md:justify-center pointer-events-none">
+          <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[81] md:inset-0 md:flex md:items-center md:justify-center md:px-4">
             <div
-              className="w-full rounded-t-3xl bg-base-100 shadow-2xl md:w-[560px] md:rounded-3xl pointer-events-auto"
+              className="pointer-events-auto flex max-h-[78svh] w-full flex-col overflow-hidden rounded-t-3xl bg-base-100 shadow-2xl md:max-h-[90vh] md:w-[560px] md:rounded-3xl"
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="flex items-center justify-end p-4 pb-0">
-                <button className="btn btn-ghost btn-sm btn-circle text-base-content/50" onClick={close}>
+              <div className="flex shrink-0 items-center justify-end border-b border-base-content/5 px-4 py-3 sm:px-6">
+                <button
+                  className="btn btn-ghost btn-sm btn-circle text-base-content/50"
+                  onClick={close}
+                >
                   <X className="h-5 w-5" />
                 </button>
               </div>
 
-              <div className="px-5 pb-6 pt-2 sm:px-8 sm:pb-8">
+              <div className="overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4 sm:px-8 md:pb-8">
                 <div className="text-center">
                   <h3 className="text-2xl font-bold sm:text-4xl">{title}</h3>
                   <div className={`mx-auto mt-6 flex h-20 w-20 items-center justify-center rounded-3xl ${iconTone}`}>
@@ -227,11 +273,13 @@ export function TransactionFlowProvider({ children }: { children: ReactNode }) {
                   {state.fields.map((field) => (
                     <div
                       key={`${field.label}-${field.value}`}
-                      className="flex items-center justify-between rounded-2xl border border-base-300 bg-base-100 px-5 py-4"
+                      className="flex flex-col gap-2 rounded-2xl border border-base-300 bg-base-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
                     >
                       <span className="text-sm font-medium text-base-content/60">{field.label}</span>
-                      <div className="flex items-center gap-3 text-right">
-                        <span className="text-sm font-semibold sm:text-base">{field.value}</span>
+                      <div className="flex min-w-0 items-center gap-3 sm:justify-end">
+                        <span className="break-all text-left text-sm font-semibold sm:text-right sm:text-base">
+                          {field.value}
+                        </span>
                         {field.tone === "success" && <span className="h-4 w-4 rounded-full bg-success shadow-[0_0_18px_rgba(34,197,94,0.5)]" />}
                         {field.tone === "warning" && <span className="h-4 w-4 rounded-full bg-warning shadow-[0_0_18px_rgba(250,204,21,0.5)]" />}
                       </div>
@@ -252,9 +300,9 @@ export function TransactionFlowProvider({ children }: { children: ReactNode }) {
                 )}
 
                 {state.stage === "error" && state.errorMessage && (
-                  <div className="alert alert-error mt-5 py-3">
-                    <AlertTriangle className="h-5 w-5" />
-                    <span className="text-sm">{state.errorMessage}</span>
+                  <div className="alert alert-error mt-5 items-start py-3">
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+                    <span className="break-words text-sm leading-6">{state.errorMessage}</span>
                   </div>
                 )}
 

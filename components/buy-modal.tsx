@@ -33,7 +33,7 @@ export function BuyModal({
   const { status, address, shortAddress, chainId } = useWallet()
   const transactionFlow = useTransactionFlow()
   const { buyTickets, loading: buyLoading, error: buyError } = useBuyTickets()
-  const { info: sessionInfo, refresh: refreshSessionInfo } = useSessionInfo(isOpen ? session.sessionAddress : null)
+  const { info: sessionInfo } = useSessionInfo(isOpen ? session.sessionAddress : null)
   const resolvedSession = useMemo(() => {
     if (!sessionInfo) return session
 
@@ -80,7 +80,7 @@ export function BuyModal({
   const [secret, setSecret] = useState("")
   const [showSecret, setShowSecret] = useState(false)
   const [copied, setCopied] = useState(false)
-  const refreshTimeoutRef = useRef<number | null>(null)
+  const refreshTimeoutsRef = useRef<number[]>([])
   const closeTimeoutRef = useRef<number | null>(null)
 
   // Calculations
@@ -105,9 +105,10 @@ export function BuyModal({
 
   useEffect(() => {
     return () => {
-      if (refreshTimeoutRef.current) {
-        window.clearTimeout(refreshTimeoutRef.current)
-      }
+      refreshTimeoutsRef.current.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId)
+      })
+      refreshTimeoutsRef.current = []
       if (closeTimeoutRef.current) {
         window.clearTimeout(closeTimeoutRef.current)
       }
@@ -198,18 +199,19 @@ export function BuyModal({
       localStorage.setItem(secretsKey, JSON.stringify(existingSecrets))
 
       const syncSessionState = async () => {
-        await refreshSessionInfo()
         await onPurchaseSuccess?.()
       }
 
       await syncSessionState()
 
-      if (refreshTimeoutRef.current) {
-        window.clearTimeout(refreshTimeoutRef.current)
-      }
-      refreshTimeoutRef.current = window.setTimeout(() => {
-        void syncSessionState()
-      }, 1500)
+      refreshTimeoutsRef.current.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId)
+      })
+      refreshTimeoutsRef.current = [1500, 4500].map((delay) =>
+        window.setTimeout(() => {
+          void syncSessionState()
+        }, delay)
+      )
 
       if (closeTimeoutRef.current) {
         window.clearTimeout(closeTimeoutRef.current)

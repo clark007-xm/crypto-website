@@ -1,12 +1,14 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Contract, Interface, formatUnits, parseUnits, ZeroAddress } from "ethers"
+import { Contract, Interface, ZeroAddress, formatUnits, parseUnits } from "ethers"
 import type { ContractTransactionResponse } from "ethers"
 import { useWallet } from "@/lib/wallet/context"
 import { useRpc } from "@/lib/rpc/context"
 import { CHAINS } from "@/lib/rpc/nodes"
 import type { TransactionLifecycleCallbacks } from "@/lib/transactions/types"
+import { buildCreatorRevealPayload } from "@/lib/creator-session-secret"
+import { getReadableContractErrorMessage } from "./errors"
 import { ERC20_ABI, FACTORY_ABI, SESSION_ABI, TREASURY_ABI } from "./abis"
 import { getAddresses, hasDeployedContracts } from "./addresses"
 import { getMaxBlockRange } from "./config"
@@ -334,7 +336,7 @@ export function useApproveUsdt() {
         return tx
       } catch (err) {
         callbacks?.onError?.(err)
-        setError(err instanceof Error ? err.message : "Approve failed")
+        setError(getReadableContractErrorMessage(err, "Approve failed"))
         return null
       } finally {
         setLoading(false)
@@ -501,7 +503,7 @@ export function useDepositToTreasury() {
         return true
       } catch (err) {
         callbacks?.onError?.(err)
-        setError(err instanceof Error ? err.message : "Deposit failed")
+        setError(getReadableContractErrorMessage(err, "Deposit failed"))
         return false
       } finally {
         setLoading(false)
@@ -665,7 +667,7 @@ export function useCreateSession() {
         return null
       } catch (err) {
         callbacks?.onError?.(err)
-        setError(err instanceof Error ? err.message : "Create session failed")
+        setError(getReadableContractErrorMessage(err, "Create session failed"))
         return null
       } finally {
         setLoading(false)
@@ -704,6 +706,69 @@ export interface SessionConfigFromEvent extends SessionCatalogFromEvent {
   ticketsSold: bigint
   isSettled: boolean
   settlementType: SessionSettlementType | null
+}
+
+interface TimedCacheEntry<T> {
+  value: T
+  updatedAt: number
+}
+
+const ACTIVE_SESSIONS_CACHE_TTL_MS = 15_000
+const SESSION_CATALOG_CACHE_TTL_MS = 30_000
+const GLOBAL_PURCHASE_HISTORY_CACHE_TTL_MS = 15_000
+const ACTIVE_SESSIONS_CACHE = new Map<number, TimedCacheEntry<SessionConfigFromEvent[]>>()
+const SESSION_CATALOG_CACHE = new Map<number, TimedCacheEntry<SessionCatalogFromEvent[]>>()
+const GLOBAL_PURCHASE_HISTORY_CACHE = new Map<
+  string,
+  TimedCacheEntry<GlobalSessionPurchaseRecord[]>
+>()
+
+function getFreshCacheValue<T>(
+  cache: Map<string | number, TimedCacheEntry<T>>,
+  key: string | number,
+  ttlMs: number
+) {
+  const entry = cache.get(key)
+  if (!entry) return null
+  if (Date.now() - entry.updatedAt > ttlMs) return null
+  return entry.value
+}
+
+function buildSessionCatalogEntry(
+  chainId: number,
+  sessionAddress: string,
+  config: readonly unknown[]
+): SessionCatalogFromEvent {
+  const commitDurationSeconds = BigInt(
+    (config[11] as bigint | number | string | undefined) ?? 0
+  )
+  const revealDurationSeconds = BigInt(
+    (config[12] as bigint | number | string | undefined) ?? 0
+  )
+  const unlockTimestamp = BigInt((config[13] as bigint | number | string | undefined) ?? 0)
+  const commitDeadline = unlockTimestamp + commitDurationSeconds
+  const revealDeadline = commitDeadline + revealDurationSeconds
+
+  return {
+    chainId,
+    sessionAddress,
+    admin: config[0] as string,
+    creator: config[1] as string,
+    sessionCommitment: config[2] as string,
+    treasury: config[3] as string,
+    paymentToken: config[4] as string,
+    ticketPrice: BigInt((config[5] as bigint | number | string | undefined) ?? 0),
+    totalTickets: BigInt((config[6] as bigint | number | string | undefined) ?? 0),
+    partnerShareBps: Number(config[7] ?? 0),
+    platformFeeBps: Number(config[8] ?? 0),
+    unsoldTicketsPartnerDepositSlashBps: Number(config[9] ?? 0),
+    creatorAbsentPartnerDepositSlashBps: Number(config[10] ?? 0),
+    commitDurationSeconds,
+    revealDurationSeconds,
+    unlockTimestamp,
+    commitDeadline,
+    revealDeadline,
+  }
 }
 
 export function useActiveSessions() {
@@ -760,53 +825,24 @@ export function useActiveSessions() {
             if (typeof sessionAddress !== "string" || !config) {
               return null
             }
-
-            const commitDurationSeconds = BigInt((config[11] as bigint | number | string | undefined) ?? 0)
-            const revealDurationSeconds = BigInt((config[12] as bigint | number | string | undefined) ?? 0)
-            const unlockTimestampFromEvent = BigInt((config[13] as bigint | number | string | undefined) ?? 0)
             const sessionContract = new Contract(sessionAddress, SESSION_ABI, provider)
-
-            let unlockTimestamp = unlockTimestampFromEvent
-            try {
-              unlockTimestamp = BigInt((await sessionContract.unlockTimestamp()) as bigint)
-            } catch {
-              // Keep the event value if the direct call fails.
-            }
-
-            const [ticketsSold, isSettled, rawSettlementType] = await Promise.all([
+            const catalogEntry = buildSessionCatalogEntry(activeChainId, sessionAddress, config)
+            const [ticketsSold, isSettled] = await Promise.all([
               sessionContract.nextTicketIndex().catch(() => 0n),
               sessionContract.isSettled().catch(() => false),
-              sessionContract.settledType().catch(() => 0n),
             ])
+            const rawSettlementType = Boolean(isSettled)
+              ? await sessionContract.settledType().catch(() => 0n)
+              : 0n
             const settlementType = Boolean(isSettled)
               ? normalizeSettlementType(rawSettlementType)
               : null
 
-            const commitDeadline = unlockTimestamp + commitDurationSeconds
-            const revealDeadline = commitDeadline + revealDurationSeconds
-
             return {
-              chainId: activeChainId,
-              sessionAddress,
-              admin: config[0] as string,
-              creator: config[1] as string,
-              sessionCommitment: config[2] as string,
-              treasury: config[3] as string,
-              paymentToken: config[4] as string,
-              ticketPrice: BigInt((config[5] as bigint | number | string | undefined) ?? 0),
-              totalTickets: BigInt((config[6] as bigint | number | string | undefined) ?? 0),
-              partnerShareBps: Number(config[7] ?? 0),
-              platformFeeBps: Number(config[8] ?? 0),
-              unsoldTicketsPartnerDepositSlashBps: Number(config[9] ?? 0),
-              creatorAbsentPartnerDepositSlashBps: Number(config[10] ?? 0),
-              commitDurationSeconds,
-              revealDurationSeconds,
-              unlockTimestamp,
+              ...catalogEntry,
               ticketsSold: BigInt(ticketsSold),
               isSettled: Boolean(isSettled),
               settlementType,
-              commitDeadline,
-              revealDeadline,
             } satisfies SessionConfigFromEvent
           } catch {
             return null
@@ -817,8 +853,12 @@ export function useActiveSessions() {
       const validConfigs = sessionConfigs.filter(
         (session): session is SessionConfigFromEvent => Boolean(session?.sessionAddress)
       )
-
-      setSessions(validConfigs.reverse())
+      const nextSessions = validConfigs.reverse()
+      ACTIVE_SESSIONS_CACHE.set(activeChainId, {
+        value: nextSessions,
+        updatedAt: Date.now(),
+      })
+      setSessions(nextSessions)
     } catch {
       setSessions([])
     } finally {
@@ -828,9 +868,18 @@ export function useActiveSessions() {
 
   useEffect(() => {
     if (factory) {
+      const cachedSessions = getFreshCacheValue(
+        ACTIVE_SESSIONS_CACHE,
+        activeChainId,
+        ACTIVE_SESSIONS_CACHE_TTL_MS
+      )
+      if (cachedSessions) {
+        setSessions(cachedSessions)
+        return
+      }
       refresh()
     }
-  }, [factory, refresh])
+  }, [activeChainId, factory, refresh])
 
   return { sessions, loading, refresh }
 }
@@ -878,40 +927,19 @@ export function useAllSessionCatalog() {
             if (typeof sessionAddress !== "string" || !config) {
               return null
             }
-
-            const commitDurationSeconds = BigInt((config[11] as bigint | number | string | undefined) ?? 0)
-            const revealDurationSeconds = BigInt((config[12] as bigint | number | string | undefined) ?? 0)
-            const unlockTimestamp = BigInt((config[13] as bigint | number | string | undefined) ?? 0)
-            const commitDeadline = unlockTimestamp + commitDurationSeconds
-            const revealDeadline = commitDeadline + revealDurationSeconds
-
-            return {
-              chainId: activeChainId,
-              sessionAddress,
-              admin: config[0] as string,
-              creator: config[1] as string,
-              sessionCommitment: config[2] as string,
-              treasury: config[3] as string,
-              paymentToken: config[4] as string,
-              ticketPrice: BigInt((config[5] as bigint | number | string | undefined) ?? 0),
-              totalTickets: BigInt((config[6] as bigint | number | string | undefined) ?? 0),
-              partnerShareBps: Number(config[7] ?? 0),
-              platformFeeBps: Number(config[8] ?? 0),
-              unsoldTicketsPartnerDepositSlashBps: Number(config[9] ?? 0),
-              creatorAbsentPartnerDepositSlashBps: Number(config[10] ?? 0),
-              commitDurationSeconds,
-              revealDurationSeconds,
-              unlockTimestamp,
-              commitDeadline,
-              revealDeadline,
-            } satisfies SessionCatalogFromEvent
+            return buildSessionCatalogEntry(activeChainId, sessionAddress, config)
           } catch {
             return null
           }
         })
         .filter((session): session is SessionCatalogFromEvent => Boolean(session?.sessionAddress))
 
-      setSessions(sessionCatalog.reverse())
+      const nextSessions = sessionCatalog.reverse()
+      SESSION_CATALOG_CACHE.set(activeChainId, {
+        value: nextSessions,
+        updatedAt: Date.now(),
+      })
+      setSessions(nextSessions)
     } catch {
       setSessions([])
     } finally {
@@ -920,10 +948,110 @@ export function useAllSessionCatalog() {
   }, [activeChainId, readProvider])
 
   useEffect(() => {
+    const cachedSessions = getFreshCacheValue(
+      SESSION_CATALOG_CACHE,
+      activeChainId,
+      SESSION_CATALOG_CACHE_TTL_MS
+    )
+    if (cachedSessions) {
+      setSessions(cachedSessions)
+      return
+    }
     void refresh()
-  }, [refresh])
+  }, [activeChainId, refresh])
 
   return { sessions, loading, refresh }
+}
+
+export function useSessionCatalogEntry(sessionAddress: string | null) {
+  const factory = useFactoryContractReadOnly()
+  const { chain } = useRpc()
+  const [session, setSession] = useState<SessionCatalogFromEvent | null>(null)
+  const [loading, setLoading] = useState(false)
+  const lastFetchKey = useRef<string | null>(null)
+
+  const factoryRef = useRef(factory)
+  factoryRef.current = factory
+  const activeChainId = CHAINS[chain].numericId
+
+  const refresh = useCallback(async () => {
+    const currentFactory = factoryRef.current
+    if (!currentFactory || !sessionAddress) {
+      setSession(null)
+      return
+    }
+
+    const normalizedAddress = sessionAddress.toLowerCase()
+    const cachedSessions = getFreshCacheValue(
+      SESSION_CATALOG_CACHE,
+      activeChainId,
+      SESSION_CATALOG_CACHE_TTL_MS
+    )
+    const cachedMatch = cachedSessions?.find(
+      (item) => item.sessionAddress.toLowerCase() === normalizedAddress
+    )
+    if (cachedMatch) {
+      setSession(cachedMatch)
+      lastFetchKey.current = `${activeChainId}-${normalizedAddress}`
+      return
+    }
+
+    setLoading(true)
+    try {
+      const provider = currentFactory.runner?.provider
+      if (!provider) {
+        setSession(null)
+        return
+      }
+
+      const currentBlock = await provider.getBlockNumber()
+      const { deployBlock } = getAddresses(activeChainId)
+      const maxBlocksPerQuery = 9000
+      const filter = currentFactory.filters.SessionCreated(null, sessionAddress)
+      const matchedEvents: Awaited<ReturnType<typeof currentFactory.queryFilter>> = []
+
+      let fromBlock = deployBlock
+      while (fromBlock <= currentBlock) {
+        const toBlock = Math.min(fromBlock + maxBlocksPerQuery - 1, currentBlock)
+        const batchEvents = await currentFactory.queryFilter(filter, fromBlock, toBlock)
+        matchedEvents.push(...batchEvents)
+        fromBlock = toBlock + 1
+      }
+
+      const latestEvent = matchedEvents[matchedEvents.length - 1]
+      if (!latestEvent) {
+        setSession(null)
+        lastFetchKey.current = `${activeChainId}-${normalizedAddress}`
+        return
+      }
+
+      const parsed = currentFactory.interface.parseLog(latestEvent)
+      const parsedSessionAddress = parsed?.args?.[1]
+      const config = parsed?.args?.[2] as readonly unknown[] | undefined
+      if (!parsed || parsed.name !== "SessionCreated" || typeof parsedSessionAddress !== "string" || !config) {
+        setSession(null)
+        lastFetchKey.current = `${activeChainId}-${normalizedAddress}`
+        return
+      }
+
+      const nextSession = buildSessionCatalogEntry(activeChainId, parsedSessionAddress, config)
+      setSession(nextSession)
+      lastFetchKey.current = `${activeChainId}-${normalizedAddress}`
+    } catch {
+      setSession(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [activeChainId, sessionAddress])
+
+  useEffect(() => {
+    const key = sessionAddress ? `${activeChainId}-${sessionAddress.toLowerCase()}` : null
+    if (factory && key && lastFetchKey.current !== key) {
+      void refresh()
+    }
+  }, [activeChainId, factory, refresh, sessionAddress])
+
+  return { session, loading, refresh }
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -1487,8 +1615,13 @@ export function useAllPurchaseHistory() {
           return b.logIndex - a.logIndex
         })
 
+      const cacheKey = `${address}-${sessions.map((session) => session.sessionAddress).join(",")}`
+      GLOBAL_PURCHASE_HISTORY_CACHE.set(cacheKey, {
+        value: nextRecords,
+        updatedAt: Date.now(),
+      })
       setRecords(nextRecords)
-      lastFetchKey.current = `${address}-${sessions.map((session) => session.sessionAddress).join(",")}`
+      lastFetchKey.current = cacheKey
     } catch {
       setRecords([])
     } finally {
@@ -1506,15 +1639,32 @@ export function useAllPurchaseHistory() {
     if (!address || !readProvider || sessionsLoading) return
 
     const key = `${address}-${sessions.map((session) => session.sessionAddress).join(",")}`
+    const cachedRecords = getFreshCacheValue(
+      GLOBAL_PURCHASE_HISTORY_CACHE,
+      key,
+      GLOBAL_PURCHASE_HISTORY_CACHE_TTL_MS
+    )
+    if (cachedRecords) {
+      setRecords(cachedRecords)
+      lastFetchKey.current = key
+      return
+    }
     if (lastFetchKey.current !== key) {
       void refresh()
     }
   }, [address, readProvider, refresh, sessions, sessionsLoading, status])
 
   const refreshAll = useCallback(async () => {
+    if (address) {
+      GLOBAL_PURCHASE_HISTORY_CACHE.forEach((_, cacheKey) => {
+        if (cacheKey.startsWith(`${address}-`)) {
+          GLOBAL_PURCHASE_HISTORY_CACHE.delete(cacheKey)
+        }
+      })
+    }
     lastFetchKey.current = null
     await refreshSessions()
-  }, [refreshSessions])
+  }, [address, refreshSessions])
 
   return {
     records,
@@ -1632,7 +1782,7 @@ export function useClaimPrize() {
       return tx
     } catch (err) {
       callbacks?.onError?.(err)
-      setError(err instanceof Error ? err.message : "Claim prize failed")
+      setError(getReadableContractErrorMessage(err, "Claim prize failed"))
       return null
     } finally {
       setLoading(false)
@@ -1668,7 +1818,7 @@ export function useRefund() {
       return tx
     } catch (err) {
       callbacks?.onError?.(err)
-      setError(err instanceof Error ? err.message : "Refund failed")
+      setError(getReadableContractErrorMessage(err, "Refund failed"))
       return null
     } finally {
       setLoading(false)
@@ -1706,6 +1856,7 @@ export function useUnsoldSettlement() {
     setError(null)
     try {
       const contract = new Contract(sessionAddress, SESSION_ABI, currentSigner)
+      await contract.finalizeTicketsUnsoldSettlement.staticCall()
       callbacks?.onAwaitingSignature?.()
       const tx = (await contract.finalizeTicketsUnsoldSettlement()) as ContractTransactionResponse
       callbacks?.onSubmitted?.(tx)
@@ -1714,7 +1865,7 @@ export function useUnsoldSettlement() {
       return tx
     } catch (err) {
       callbacks?.onError?.(err)
-      setError(err instanceof Error ? err.message : "Unsold settlement failed")
+      setError(getReadableContractErrorMessage(err, "Unsold settlement failed"))
       return null
     } finally {
       setLoading(false)
@@ -1742,6 +1893,7 @@ export function useCreatorAbsentSettlement() {
     setError(null)
     try {
       const contract = new Contract(sessionAddress, SESSION_ABI, currentSigner)
+      await contract.finalizeCreatorAbsentSettlement.staticCall()
       callbacks?.onAwaitingSignature?.()
       const tx = (await contract.finalizeCreatorAbsentSettlement()) as ContractTransactionResponse
       callbacks?.onSubmitted?.(tx)
@@ -1750,7 +1902,7 @@ export function useCreatorAbsentSettlement() {
       return tx
     } catch (err) {
       callbacks?.onError?.(err)
-      setError(err instanceof Error ? err.message : "Creator absent settlement failed")
+      setError(getReadableContractErrorMessage(err, "Creator absent settlement failed"))
       return null
     } finally {
       setLoading(false)
@@ -1758,6 +1910,54 @@ export function useCreatorAbsentSettlement() {
   }, [])
 
   return { finalizeCreatorAbsentSettlement, loading, error }
+}
+
+export function useRevealSession() {
+  const { signer } = useWallet()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const signerRef = useRef(signer)
+  signerRef.current = signer
+
+  const revealSession = useCallback(async (
+    sessionAddress: string,
+    secret: string,
+    callbacks?: TransactionLifecycleCallbacks
+  ) => {
+    const currentSigner = signerRef.current
+    if (!currentSigner) return null
+
+    const payload = buildCreatorRevealPayload(secret)
+    if (!payload) {
+      setError("Please enter the creator secret used when this session was created.")
+      return null
+    }
+
+    setLoading(true)
+    setError(null)
+    try {
+      const contract = new Contract(sessionAddress, SESSION_ABI, currentSigner)
+      await contract.reveal.staticCall(payload.revealData, payload.salt)
+      callbacks?.onAwaitingSignature?.()
+      const tx = (await contract.reveal(
+        payload.revealData,
+        payload.salt
+      )) as ContractTransactionResponse
+      callbacks?.onSubmitted?.(tx)
+      await tx.wait()
+      callbacks?.onConfirmed?.(tx)
+      return tx
+    } catch (err) {
+      callbacks?.onError?.(err)
+      setError(getReadableContractErrorMessage(err, "Reveal failed"))
+      return null
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  return { revealSession, loading, error }
 }
 
 /**
@@ -1795,7 +1995,7 @@ export function useClaimPrincipalAndPenalty() {
       return tx
     } catch (err) {
       callbacks?.onError?.(err)
-      setError(err instanceof Error ? err.message : "Claim failed")
+      setError(getReadableContractErrorMessage(err, "Claim failed"))
       return null
     } finally {
       setLoading(false)
@@ -1831,7 +2031,7 @@ export function useClaimPrincipalAndCompensationIfCreatorAbsent() {
       return tx
     } catch (err) {
       callbacks?.onError?.(err)
-      setError(err instanceof Error ? err.message : "Claim failed")
+      setError(getReadableContractErrorMessage(err, "Claim failed"))
       return null
     } finally {
       setLoading(false)

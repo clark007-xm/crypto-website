@@ -3,12 +3,13 @@
 import { useState } from "react"
 import Link from "next/link"
 import { ArrowLeft, AlertTriangle, CheckCircle, Copy, Check, Eye, EyeOff, Wallet } from "lucide-react"
-import { parseEther, formatEther, keccak256, toUtf8Bytes } from "ethers"
+import { formatEther, parseEther } from "ethers"
 import { Navbar } from "@/components/navbar"
 import { useTransactionFlow } from "@/components/transaction-flow-provider"
 import { DurationPicker } from "@/components/duration-picker"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
+import { computeCreatorCommitment, saveLocalCreatorSecret } from "@/lib/creator-session-secret"
 import { useIsPartner, useCreateSession, usePartnerDeposit, useDepositToTreasury } from "@/lib/contracts/hooks"
 import { 
   MAX_COMMIT_DURATION_DAYS, 
@@ -56,7 +57,7 @@ export default function CreatePage() {
   const [depositSuccess, setDepositSuccess] = useState(false)
 
   // Compute commitment from secret (for preview)
-  const commitment = secret.trim() ? keccak256(toUtf8Bytes(secret.trim())) : ""
+  const commitment = computeCreatorCommitment(secret)
 
   // Copy secret to clipboard
   const copySecret = async () => {
@@ -164,6 +165,13 @@ export default function CreatePage() {
     )
 
     if (sessionAddress) {
+      saveLocalCreatorSecret(sessionAddress, {
+        secret: secret.trim(),
+        commitment,
+        savedAt: Date.now(),
+        creator: address ?? undefined,
+        chainId: chainId ?? undefined,
+      })
       setSuccess(true)
       setNewSessionAddress(sessionAddress)
     }

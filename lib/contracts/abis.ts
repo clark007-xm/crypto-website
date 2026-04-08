@@ -3,6 +3,33 @@
  * Using ethers v6 human-readable ABI format.
  */
 
+export const CONTRACT_ERROR_ABI = [
+  "error AlreadyPartner()",
+  "error AlreadySettled()",
+  "error ArrayLengthMismatch()",
+  "error FeeTooHigh(uint16 totalFee)",
+  "error IncorrectETHAmount(uint256 expected, uint256 actual)",
+  "error InsufficientBalance(uint256 available, uint256 requested)",
+  "error InsufficientDeposit(uint256 available, uint256 required)",
+  "error InvalidAddress()",
+  "error InvalidAmount()",
+  "error InvalidBPS(uint16 bps)",
+  "error InvalidReveal(bytes32 expected, bytes32 actual)",
+  "error InvalidZeroInput()",
+  "error MissingCommitment()",
+  "error NoTicketsOwned(address player)",
+  "error NotAnAuthorizedPartner(address partner)",
+  "error NotPartner()",
+  "error PartnerMismatch(address expected, address actual)",
+  "error SessionAlreadyRegistered(address session)",
+  "error SessionStatusError(bool isSettled, uint256 sold)",
+  "error SoldOut(uint256 available, uint256 requested)",
+  "error TimeConstraintError(uint256 current, uint256 required)",
+  "error Unauthorized(address caller, string role)",
+  "error WithdrawFailed()",
+  "error ZeroAddress()",
+] as const
+
 /* ── ERC-20 (USDT) ── */
 export const ERC20_ABI = [
   // Read

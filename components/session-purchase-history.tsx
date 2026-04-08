@@ -49,12 +49,40 @@ export function SessionPurchaseHistory({
     () => mergePurchaseHistory(records, localRecords),
     [localRecords, records]
   )
-  const totalOrders = mergedRecords.length
-  const totalTickets = mergedRecords.reduce(
-    (sum, record) => sum + Number(record.quantity),
-    0
+  const syncedTxHashes = useMemo(
+    () =>
+      new Set(
+        records.map((record) => record.transactionHash.toLowerCase())
+      ),
+    [records]
   )
+  const pendingLocalRecords = useMemo(
+    () =>
+      localRecords.filter((record) => {
+        const txHash = record.txHash?.toLowerCase()
+        return Boolean(txHash && !syncedTxHashes.has(txHash))
+      }),
+    [localRecords, syncedTxHashes]
+  )
+  const totalOrders = mergedRecords.length + pendingLocalRecords.length
+  const totalTickets =
+    mergedRecords.reduce((sum, record) => sum + Number(record.quantity), 0) +
+    pendingLocalRecords.reduce((sum, record) => sum + record.quantity, 0)
+  const hasVisibleRecords = mergedRecords.length > 0 || pendingLocalRecords.length > 0
   const isEth = session.paymentToken === ZeroAddress
+
+  const pendingRecords = useMemo(
+    () =>
+      pendingLocalRecords.map((record) => ({
+        ...record,
+        purchasedAt: new Date(record.timestamp).toLocaleString(),
+        totalCostWei:
+          typeof record.ticketPriceWei === "string"
+            ? BigInt(record.ticketPriceWei) * BigInt(record.quantity)
+            : session.ticketPrice * BigInt(record.quantity),
+      })),
+    [pendingLocalRecords, session.ticketPrice]
+  )
 
   const toggleSecret = (key: string) => {
     setRevealedSecrets((current) => ({
@@ -115,13 +143,79 @@ export function SessionPurchaseHistory({
           </div>
         </div>
 
-        {loading && mergedRecords.length === 0 && (
+        {loading && !hasVisibleRecords && (
           <div className="flex items-center justify-center py-8">
             <span className="loading loading-spinner loading-md text-primary" />
           </div>
         )}
 
-        {!loading && mergedRecords.length === 0 && (
+        {pendingRecords.length > 0 && (
+          <div className="rounded-2xl border border-info/15 bg-info/5 p-4">
+            <div className="flex items-center gap-2 text-info">
+              <History className="h-4 w-4" />
+              <p className="text-sm font-semibold">{t.tx.sentTitle}</p>
+            </div>
+            <p className="mt-1 text-xs text-base-content/55">{t.tx.sentSubtitle}</p>
+
+            <div className="mt-4 space-y-3">
+              {pendingRecords.map((record, index) => (
+                <div
+                  key={`${record.txHash}-${record.timestamp}-${index}`}
+                  className="rounded-xl border border-base-content/5 bg-base-100/80 p-4"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">{record.purchasedAt}</p>
+                      <p className="mt-1 text-xs text-base-content/45">{t.session.processing}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 sm:justify-end">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-primary/15 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                        <Ticket className="h-3.5 w-3.5" />
+                        {t.session.quantity}: {record.quantity}
+                      </span>
+                      <span className="rounded-full border border-info/20 bg-info/10 px-3 py-1 text-xs font-semibold text-info">
+                        {t.tx.progressSent}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-base-content/5 bg-base-200/70 p-4">
+                      <p className="text-xs text-base-content/45">{t.session.purchaseAmount}</p>
+                      <p className="mt-1 font-semibold">
+                        {Number(formatEther(record.totalCostWei)).toFixed(4)} {isEth ? "ETH" : "TOKEN"}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-base-content/5 bg-base-200/70 p-4">
+                      <p className="text-xs text-base-content/45">{t.session.ticketRange}</p>
+                      <p className="mt-1 font-semibold">{t.session.processing}</p>
+                    </div>
+                  </div>
+
+                  {record.txHash && (
+                    <div className="mt-3 flex items-center justify-between rounded-2xl border border-base-content/5 bg-base-200/70 px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="text-xs text-base-content/45">{t.session.transactionHash}</p>
+                        <p className="mt-1 truncate font-mono text-sm">{shortHash(record.txHash)}</p>
+                      </div>
+                      <a
+                        href={getExplorerTxUrl(session.chainId, record.txHash)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-ghost btn-sm gap-2"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        {t.session.viewTransaction}
+                      </a>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!loading && !hasVisibleRecords && (
           <div className="rounded-2xl border border-dashed border-base-content/15 bg-base-100/60 px-4 py-8 text-center">
             <p className="font-semibold text-base-content/70">{t.session.noPurchaseHistory}</p>
             <p className="mt-2 text-sm text-base-content/45">{t.session.noPurchaseHistoryDesc}</p>
