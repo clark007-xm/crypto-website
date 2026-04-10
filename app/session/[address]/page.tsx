@@ -2,7 +2,8 @@
 
 import { useState, useMemo, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Clock, ExternalLink, Ticket, Loader2 } from "lucide-react"
+import dynamic from "next/dynamic"
+import { ArrowLeft, Clock, ExternalLink, Ticket } from "lucide-react"
 import { formatEther, ZeroAddress } from "ethers"
 import Link from "next/link"
 
@@ -10,7 +11,6 @@ import { useT } from "@/lib/i18n/context"
 import {
   getSessionPhaseState,
   usePlayerTickets,
-  useSessionCatalogEntry,
   useSessionInfo,
 } from "@/lib/contracts/hooks"
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
@@ -18,47 +18,61 @@ import { useCountdown } from "@/hooks/use-countdown"
 import { BuyModal } from "@/components/buy-modal"
 import { CreatorPanel } from "@/components/creator-panel"
 import { PlayerClaimPanel } from "@/components/player-claim-panel"
-import { SessionPurchaseHistory } from "@/components/session-purchase-history"
 
 // ETH to USDT rate for display
 const ETH_USDT_RATE = 2500
+
+function SessionPurchaseHistorySkeleton() {
+  return (
+    <div className="card mt-6 border border-base-content/5 bg-base-200">
+      <div className="card-body gap-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-2xl bg-base-300 animate-pulse" />
+            <div className="space-y-2">
+              <div className="h-5 w-28 rounded bg-base-300 animate-pulse" />
+              <div className="h-4 w-56 rounded bg-base-300/80 animate-pulse" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <div className="h-8 w-24 rounded-full bg-base-300 animate-pulse" />
+            <div className="h-8 w-24 rounded-full bg-base-300 animate-pulse" />
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="h-20 rounded-2xl bg-base-300/80 animate-pulse" />
+          <div className="h-20 rounded-2xl bg-base-300/70 animate-pulse" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const SessionPurchaseHistory = dynamic(
+  () =>
+    import("@/components/session-purchase-history").then(
+      (module) => module.SessionPurchaseHistory
+    ),
+  {
+    ssr: false,
+    loading: () => <SessionPurchaseHistorySkeleton />,
+  }
+)
 
 export default function SessionDetailPage() {
   const params = useParams()
   const router = useRouter()
   const sessionAddress = params.address as string
   const t = useT()
+  const shortAddress = `${sessionAddress.slice(0, 6)}...${sessionAddress.slice(-4)}`
   
-  // Fetch only the current session catalog entry instead of loading the whole list.
-  const { session: sessionCatalog, loading: sessionCatalogLoading } = useSessionCatalogEntry(sessionAddress)
-  const { info: sessionInfo, refresh: refreshSessionInfo } = useSessionInfo(sessionAddress)
+  const {
+    info: resolvedSession,
+    loading: sessionLoading,
+    refresh: refreshSessionInfo,
+  } = useSessionInfo(sessionAddress)
   const { tickets: playerTicketCount, refresh: refreshPlayerTickets } = usePlayerTickets(sessionAddress)
-  const resolvedSession = useMemo(() => {
-    if (!sessionCatalog) return null
-    if (!sessionInfo) {
-      return {
-        ...sessionCatalog,
-        ticketsSold: 0n,
-        isSettled: false,
-        settlementType: null,
-      }
-    }
-
-    return {
-      ...sessionCatalog,
-      ticketPrice: sessionInfo.ticketPrice,
-      totalTickets: sessionInfo.totalTickets,
-      paymentToken: sessionInfo.paymentToken,
-      unlockTimestamp: sessionInfo.unlockTimestamp,
-      commitDurationSeconds: sessionInfo.commitDurationSeconds,
-      revealDurationSeconds: sessionInfo.revealDurationSeconds,
-      ticketsSold: sessionInfo.ticketsSold,
-      isSettled: sessionInfo.isSettled,
-      settlementType: sessionInfo.settlementType,
-      commitDeadline: sessionInfo.commitDeadline,
-      revealDeadline: sessionInfo.revealDeadline,
-    }
-  }, [sessionCatalog, sessionInfo])
   
   // Buy modal state
   const [buyModalOpen, setBuyModalOpen] = useState(false)
@@ -130,13 +144,54 @@ export default function SessionDetailPage() {
     }
     router.push("/")
   }, [router])
-  
-  // Loading state
-  if (sessionCatalogLoading) {
+
+  if (sessionLoading && !resolvedSession) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
+      <main className="min-h-screen bg-base-100 py-6 px-4">
+        <div className="max-w-2xl mx-auto">
+          <button
+            onClick={handleBack}
+            className="btn btn-ghost btn-sm gap-2 mb-6"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {t.session.back}
+          </button>
+
+          <div className="card bg-base-200 border border-base-content/5 mb-6">
+            <div className="card-body">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="bg-gradient-to-br from-primary/20 to-secondary/20 rounded-xl w-14 h-14 shrink-0" />
+                  <div className="min-w-0 space-y-2">
+                    <div className="h-6 w-28 rounded bg-base-300 animate-pulse" />
+                    <div className="h-4 w-28 rounded bg-base-300/80 animate-pulse" />
+                  </div>
+                </div>
+                <div className="h-6 w-20 rounded-full bg-base-300 animate-pulse" />
+              </div>
+
+              <div className="bg-base-300/60 rounded-xl p-4 mt-4 border border-base-content/5">
+                <div className="h-4 w-20 rounded bg-base-300 animate-pulse mx-auto" />
+                <div className="h-10 w-48 rounded bg-base-300/80 animate-pulse mx-auto mt-3" />
+                <div className="h-4 w-24 rounded bg-base-300 animate-pulse mx-auto mt-3" />
+              </div>
+            </div>
+          </div>
+
+          <div className="card bg-base-200 border border-base-content/5">
+            <div className="card-body">
+              <div className="h-6 w-28 rounded bg-base-300 animate-pulse" />
+              <div className="space-y-3 mt-4">
+                <div className="h-12 rounded-xl bg-base-300/80 animate-pulse" />
+                <div className="h-12 rounded-xl bg-base-300/70 animate-pulse" />
+                <div className="h-12 rounded-xl bg-base-300/60 animate-pulse" />
+              </div>
+            </div>
+          </div>
+
+          <SessionPurchaseHistorySkeleton />
+        </div>
+      </main>
     )
   }
   
@@ -151,8 +206,6 @@ export default function SessionDetailPage() {
       </div>
     )
   }
-  
-  const shortAddress = `${sessionAddress.slice(0, 6)}...${sessionAddress.slice(-4)}`
 
   return (
     <main className="min-h-screen bg-base-100 py-6 px-4">

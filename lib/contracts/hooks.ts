@@ -1058,20 +1058,8 @@ export function useSessionCatalogEntry(sessionAddress: string | null) {
  *  Session Contract Hooks
  * ════════════════════════════════════════════════���═══════════════════════════ */
 
-export interface SessionInfo {
-  address: string
-  ticketPrice: bigint
-  totalTickets: bigint
-  ticketsSold: bigint
-  paymentToken: string
-  isSettled: boolean
-  settlementType: SessionSettlementType | null
+export interface SessionInfo extends SessionConfigFromEvent {
   winner: string
-  unlockTimestamp: bigint
-  commitDurationSeconds: bigint
-  revealDurationSeconds: bigint
-  commitDeadline: bigint
-  revealDeadline: bigint
   isCommitPhaseActive: boolean
   canSettle: boolean
 }
@@ -1086,10 +1074,12 @@ export function useSessionContract(sessionAddress: string | null) {
 }
 
 export function useSessionInfo(sessionAddress: string | null) {
+  const { chain } = useRpc()
   const session = useSessionContract(sessionAddress)
   const [info, setInfo] = useState<SessionInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const lastFetchedAddress = useRef<string | null>(null)
+  const activeChainId = CHAINS[chain].numericId
 
   const sessionRef = useRef(session)
   sessionRef.current = session
@@ -1103,20 +1093,36 @@ export function useSessionInfo(sessionAddress: string | null) {
     setLoading(true)
     try {
       const [
+        admin,
+        creator,
+        sessionCommitment,
+        treasury,
         ticketPrice,
         totalTickets,
         ticketsSold,
         paymentToken,
+        partnerShareBps,
+        platformFeeBps,
+        unsoldTicketsPartnerDepositSlashBps,
+        creatorAbsentPartnerDepositSlashBps,
         unlockTimestamp,
         commitDurationSeconds,
         revealDurationSeconds,
         isSettled,
         rawSettlementType,
       ] = await Promise.all([
+        currentSession.admin().catch(() => ZeroAddress),
+        currentSession.creator().catch(() => ZeroAddress),
+        currentSession.sessionCommitment().catch(() => ZeroAddress),
+        currentSession.treasury().catch(() => ZeroAddress),
         currentSession.ticketPrice().catch(() => 0n),
         currentSession.totalTickets().catch(() => 0n),
         currentSession.nextTicketIndex().catch(() => 0n),
         currentSession.paymentToken().catch(() => ZeroAddress),
+        currentSession.partnerShareBps().catch(() => 0),
+        currentSession.platformFeeBps().catch(() => 0),
+        currentSession.unsoldTicketsPartnerDepositSlashBps().catch(() => 0),
+        currentSession.creatorAbsentPartnerDepositSlashBps().catch(() => 0),
         currentSession.unlockTimestamp().catch(() => 0n),
         currentSession.commitDurationSeconds().catch(() => 0n),
         currentSession.revealDurationSeconds().catch(() => 0n),
@@ -1140,11 +1146,20 @@ export function useSessionInfo(sessionAddress: string | null) {
         : null
 
       setInfo({
-        address: sessionAddress,
+        chainId: activeChainId,
+        sessionAddress,
+        admin: String(admin),
+        creator: String(creator),
+        sessionCommitment: String(sessionCommitment),
+        treasury: String(treasury),
         ticketPrice: BigInt(ticketPrice),
         totalTickets: BigInt(totalTickets),
         ticketsSold: BigInt(ticketsSold),
         paymentToken: String(paymentToken),
+        partnerShareBps: Number(partnerShareBps),
+        platformFeeBps: Number(platformFeeBps),
+        unsoldTicketsPartnerDepositSlashBps: Number(unsoldTicketsPartnerDepositSlashBps),
+        creatorAbsentPartnerDepositSlashBps: Number(creatorAbsentPartnerDepositSlashBps),
         isSettled: Boolean(isSettled),
         settlementType,
         winner: ZeroAddress,
@@ -1162,7 +1177,7 @@ export function useSessionInfo(sessionAddress: string | null) {
     } finally {
       setLoading(false)
     }
-  }, [sessionAddress])
+  }, [activeChainId, sessionAddress])
 
   useEffect(() => {
     if (session && sessionAddress && lastFetchedAddress.current !== sessionAddress) {

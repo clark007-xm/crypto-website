@@ -30,20 +30,34 @@ export function SessionPurchaseHistory({
 }: SessionPurchaseHistoryProps) {
   const t = useT()
   const { status, address } = useWallet()
-  const { records, loading, refresh } = useSessionPurchaseHistory(session.sessionAddress)
+  const [historyEnabled, setHistoryEnabled] = useState(false)
+  const { records, loading, refresh } = useSessionPurchaseHistory(
+    historyEnabled ? session.sessionAddress : null
+  )
   const [localRecords, setLocalRecords] = useState<LocalPurchaseRecord[]>([])
   const [revealedSecrets, setRevealedSecrets] = useState<Record<string, boolean>>({})
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
   useEffect(() => {
-    setLocalRecords(loadLocalPurchaseRecords(session.sessionAddress, address))
-  }, [address, refreshNonce, session.sessionAddress])
+    const timerId = window.setTimeout(() => {
+      setHistoryEnabled(true)
+    }, 120)
+
+    return () => {
+      window.clearTimeout(timerId)
+    }
+  }, [])
 
   useEffect(() => {
-    if (status === "connected") {
+    if (!historyEnabled) return
+    setLocalRecords(loadLocalPurchaseRecords(session.sessionAddress, address))
+  }, [address, historyEnabled, refreshNonce, session.sessionAddress])
+
+  useEffect(() => {
+    if (historyEnabled && status === "connected") {
       void refresh()
     }
-  }, [refresh, refreshNonce, status])
+  }, [historyEnabled, refresh, refreshNonce, status])
 
   const mergedRecords = useMemo(
     () => mergePurchaseHistory(records, localRecords),
@@ -114,6 +128,35 @@ export function SessionPurchaseHistory({
           </div>
           <div className="alert alert-info py-3">
             <span className="text-sm">{t.session.connectToViewRecords}</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!historyEnabled) {
+    return (
+      <div className="card mt-6 border border-base-content/5 bg-base-200">
+        <div className="card-body gap-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="rounded-2xl bg-primary/10 p-2.5 text-primary">
+                <History className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold">{t.session.purchaseHistory}</h3>
+                <p className="text-sm text-base-content/60">{t.session.purchaseHistoryDesc}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <div className="h-8 w-24 rounded-full bg-base-300 animate-pulse" />
+              <div className="h-8 w-24 rounded-full bg-base-300 animate-pulse" />
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="h-20 rounded-2xl bg-base-300/80 animate-pulse" />
+            <div className="h-20 rounded-2xl bg-base-300/70 animate-pulse" />
           </div>
         </div>
       </div>
