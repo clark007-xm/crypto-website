@@ -9,12 +9,54 @@ import { CHAINS } from "@/lib/rpc/nodes"
 import type { TransactionLifecycleCallbacks } from "@/lib/transactions/types"
 import { buildCreatorRevealPayload } from "@/lib/creator-session-secret"
 import { getReadableContractErrorMessage } from "./errors"
-import { ERC20_ABI, FACTORY_ABI, SESSION_ABI, TREASURY_ABI } from "./abis"
+import {
+  ERC20_ABI,
+  FACTORY_ABI,
+  FACTORY_ABI_LEGACY,
+  SESSION_ABI,
+  TREASURY_ABI,
+} from "./abis"
 import { getAddresses, hasDeployedContracts } from "./addresses"
 import { getMaxBlockRange } from "./config"
 
 const REQUIRED_PARTNER_DEPOSIT = 100000000000000000n
 const SESSION_INTERFACE = new Interface(SESSION_ABI)
+const FACTORY_CURRENT_CREATE_SELECTOR = "0xfb7b6d1b"
+const FACTORY_LEGACY_CREATE_SELECTOR = "0xd4654ecd"
+type FactoryAbiVersion = "current" | "legacy"
+const FACTORY_VERSION_CACHE = new Map<string, FactoryAbiVersion>()
+
+function getFactoryAbi(version: FactoryAbiVersion) {
+  return version === "current" ? FACTORY_ABI : FACTORY_ABI_LEGACY
+}
+
+async function detectFactoryAbiVersion(
+  provider: { getCode(address: string): Promise<string> } | null | undefined,
+  factoryAddress: string
+): Promise<FactoryAbiVersion> {
+  const cacheKey = factoryAddress.toLowerCase()
+  const cachedVersion = FACTORY_VERSION_CACHE.get(cacheKey)
+  if (cachedVersion) {
+    return cachedVersion
+  }
+
+  if (!provider) {
+    return "current"
+  }
+
+  try {
+    const code = (await provider.getCode(factoryAddress)).toLowerCase()
+    const detectedVersion = code.includes(FACTORY_CURRENT_CREATE_SELECTOR.slice(2))
+      ? "current"
+      : code.includes(FACTORY_LEGACY_CREATE_SELECTOR.slice(2))
+        ? "legacy"
+        : "current"
+    FACTORY_VERSION_CACHE.set(cacheKey, detectedVersion)
+    return detectedVersion
+  } catch {
+    return cachedVersion ?? "current"
+  }
+}
 
 export const SESSION_SETTLEMENT_TYPES = {
   NORMAL: 0,
@@ -576,6 +618,7 @@ export function useIsPartner() {
 
 export interface CreateSessionConfig {
   sessionCommitment: string // bytes32 hex
+  productInfoId: number
   ticketPrice: bigint
   totalTickets: number
   partnerShareBps: number // e.g., 1000 = 10%
@@ -610,7 +653,8 @@ export function useCreateSession() {
       setError(null)
       try {
         const { factory, usdt, treasury } = getAddresses(chainId)
-        const factoryContract = new Contract(factory, FACTORY_ABI, currentSigner)
+        const factoryVersion = await detectFactoryAbiVersion(currentSigner.provider, factory)
+        const factoryContract = new Contract(factory, getFactoryAbi(factoryVersion), currentSigner)
         let unlockTimestamp = BigInt(Math.floor(Date.now() / 1000))
 
         try {
@@ -623,25 +667,44 @@ export function useCreateSession() {
         }
 
         // Build the SessionConfig tuple
-        // admin, creator, sessionCommitment, treasury, paymentToken, ticketPrice, totalTickets,
-        // partnerShareBps, platformFeeBps, unsoldTicketsPartnerDepositSlashBps, creatorAbsentPartnerDepositSlashBps,
-        // commitDurationSeconds, revealDurationSeconds, unlockTimestamp
-        const sessionConfig = {
-          admin: address,
-          creator: address,
-          sessionCommitment: config.sessionCommitment,
-          treasury: treasury,
-          paymentToken: usdt,
-          ticketPrice: config.ticketPrice,
-          totalTickets: BigInt(config.totalTickets),
-          partnerShareBps: config.partnerShareBps,
-          platformFeeBps: config.platformFeeBps,
-          unsoldTicketsPartnerDepositSlashBps: 0,
-          creatorAbsentPartnerDepositSlashBps: 0,
-          commitDurationSeconds: BigInt(config.commitDurationSeconds),
-          revealDurationSeconds: BigInt(config.revealDurationSeconds),
-          unlockTimestamp,
-        }
+        // admin, creator, productInfoId, sessionCommitment, treasury, paymentToken, ticketPrice,
+        // totalTickets, partnerShareBps, platformFeeBps, unsoldTicketsPartnerDepositSlashBps,
+        // creatorAbsentPartnerDepositSlashBps, commitDurationSeconds, revealDurationSeconds, unlockTimestamp
+        const sessionConfig =
+          factoryVersion === "current"
+            ? {
+                admin: address,
+                creator: address,
+                productInfoId: BigInt(config.productInfoId),
+                sessionCommitment: config.sessionCommitment,
+                treasury: treasury,
+                paymentToken: usdt,
+                ticketPrice: config.ticketPrice,
+                totalTickets: BigInt(config.totalTickets),
+                partnerShareBps: config.partnerShareBps,
+                platformFeeBps: config.platformFeeBps,
+                unsoldTicketsPartnerDepositSlashBps: 0,
+                creatorAbsentPartnerDepositSlashBps: 0,
+                commitDurationSeconds: BigInt(config.commitDurationSeconds),
+                revealDurationSeconds: BigInt(config.revealDurationSeconds),
+                unlockTimestamp,
+              }
+            : {
+                admin: address,
+                creator: address,
+                sessionCommitment: config.sessionCommitment,
+                treasury: treasury,
+                paymentToken: usdt,
+                ticketPrice: config.ticketPrice,
+                totalTickets: BigInt(config.totalTickets),
+                partnerShareBps: config.partnerShareBps,
+                platformFeeBps: config.platformFeeBps,
+                unsoldTicketsPartnerDepositSlashBps: 0,
+                creatorAbsentPartnerDepositSlashBps: 0,
+                commitDurationSeconds: BigInt(config.commitDurationSeconds),
+                revealDurationSeconds: BigInt(config.revealDurationSeconds),
+                unlockTimestamp,
+              }
 
         callbacks?.onAwaitingSignature?.()
         const tx = await factoryContract.createSession(sessionConfig)
@@ -685,6 +748,7 @@ export interface SessionCatalogFromEvent {
   sessionAddress: string
   creator: string
   admin: string
+  productInfoId: number
   treasury: string
   sessionCommitment: string
   paymentToken: string
@@ -737,15 +801,21 @@ function getFreshCacheValue<T>(
 function buildSessionCatalogEntry(
   chainId: number,
   sessionAddress: string,
-  config: readonly unknown[]
+  config: readonly unknown[],
+  version: FactoryAbiVersion
 ): SessionCatalogFromEvent {
+  const hasProductInfo = version === "current" || config.length >= 15
+  const productInfoOffset = hasProductInfo ? 1 : 0
+  const productInfoId = hasProductInfo ? Number(config[2] ?? 0) : 0
   const commitDurationSeconds = BigInt(
-    (config[11] as bigint | number | string | undefined) ?? 0
+    (config[11 + productInfoOffset] as bigint | number | string | undefined) ?? 0
   )
   const revealDurationSeconds = BigInt(
-    (config[12] as bigint | number | string | undefined) ?? 0
+    (config[12 + productInfoOffset] as bigint | number | string | undefined) ?? 0
   )
-  const unlockTimestamp = BigInt((config[13] as bigint | number | string | undefined) ?? 0)
+  const unlockTimestamp = BigInt(
+    (config[13 + productInfoOffset] as bigint | number | string | undefined) ?? 0
+  )
   const commitDeadline = unlockTimestamp + commitDurationSeconds
   const revealDeadline = commitDeadline + revealDurationSeconds
 
@@ -754,15 +824,20 @@ function buildSessionCatalogEntry(
     sessionAddress,
     admin: config[0] as string,
     creator: config[1] as string,
-    sessionCommitment: config[2] as string,
-    treasury: config[3] as string,
-    paymentToken: config[4] as string,
-    ticketPrice: BigInt((config[5] as bigint | number | string | undefined) ?? 0),
-    totalTickets: BigInt((config[6] as bigint | number | string | undefined) ?? 0),
-    partnerShareBps: Number(config[7] ?? 0),
-    platformFeeBps: Number(config[8] ?? 0),
-    unsoldTicketsPartnerDepositSlashBps: Number(config[9] ?? 0),
-    creatorAbsentPartnerDepositSlashBps: Number(config[10] ?? 0),
+    productInfoId,
+    sessionCommitment: config[2 + productInfoOffset] as string,
+    treasury: config[3 + productInfoOffset] as string,
+    paymentToken: config[4 + productInfoOffset] as string,
+    ticketPrice: BigInt(
+      (config[5 + productInfoOffset] as bigint | number | string | undefined) ?? 0
+    ),
+    totalTickets: BigInt(
+      (config[6 + productInfoOffset] as bigint | number | string | undefined) ?? 0
+    ),
+    partnerShareBps: Number(config[7 + productInfoOffset] ?? 0),
+    platformFeeBps: Number(config[8 + productInfoOffset] ?? 0),
+    unsoldTicketsPartnerDepositSlashBps: Number(config[9 + productInfoOffset] ?? 0),
+    creatorAbsentPartnerDepositSlashBps: Number(config[10 + productInfoOffset] ?? 0),
     commitDurationSeconds,
     revealDurationSeconds,
     unlockTimestamp,
@@ -797,17 +872,19 @@ export function useActiveSessions() {
       }
 
       const currentBlock = await provider.getBlockNumber()
-      const { deployBlock } = getAddresses(activeChainId)
+      const { factory, deployBlock } = getAddresses(activeChainId)
+      const factoryVersion = await detectFactoryAbiVersion(provider, factory)
+      const factoryContract = new Contract(factory, getFactoryAbi(factoryVersion), provider)
       const maxBlockRange = getMaxBlockRange()
       const startBlock = Math.max(deployBlock, currentBlock - maxBlockRange)
       const maxBlocksPerQuery = 9000
-      const filter = currentFactory.filters.SessionCreated()
-      const allEvents: Awaited<ReturnType<typeof currentFactory.queryFilter>> = []
+      const filter = factoryContract.filters.SessionCreated()
+      const allEvents: Awaited<ReturnType<typeof factoryContract.queryFilter>> = []
 
       let fromBlock = startBlock
       while (fromBlock <= currentBlock) {
         const toBlock = Math.min(fromBlock + maxBlocksPerQuery - 1, currentBlock)
-        const batchEvents = await currentFactory.queryFilter(filter, fromBlock, toBlock)
+        const batchEvents = await factoryContract.queryFilter(filter, fromBlock, toBlock)
         allEvents.push(...batchEvents)
         fromBlock = toBlock + 1
       }
@@ -815,7 +892,7 @@ export function useActiveSessions() {
       const sessionConfigs = await Promise.all(
         allEvents.map(async (event) => {
           try {
-            const parsed = currentFactory.interface.parseLog(event)
+            const parsed = factoryContract.interface.parseLog(event)
             if (!parsed || parsed.name !== "SessionCreated") {
               return null
             }
@@ -826,7 +903,12 @@ export function useActiveSessions() {
               return null
             }
             const sessionContract = new Contract(sessionAddress, SESSION_ABI, provider)
-            const catalogEntry = buildSessionCatalogEntry(activeChainId, sessionAddress, config)
+            const catalogEntry = buildSessionCatalogEntry(
+              activeChainId,
+              sessionAddress,
+              config,
+              factoryVersion
+            )
             const [ticketsSold, isSettled] = await Promise.all([
               sessionContract.nextTicketIndex().catch(() => 0n),
               sessionContract.isSettled().catch(() => false),
@@ -900,7 +982,8 @@ export function useAllSessionCatalog() {
     setLoading(true)
     try {
       const { factory, deployBlock } = getAddresses(activeChainId)
-      const factoryContract = new Contract(factory, FACTORY_ABI, readProvider)
+      const factoryVersion = await detectFactoryAbiVersion(readProvider, factory)
+      const factoryContract = new Contract(factory, getFactoryAbi(factoryVersion), readProvider)
       const currentBlock = await readProvider.getBlockNumber()
       const maxBlocksPerQuery = 9000
       const filter = factoryContract.filters.SessionCreated()
@@ -927,7 +1010,7 @@ export function useAllSessionCatalog() {
             if (typeof sessionAddress !== "string" || !config) {
               return null
             }
-            return buildSessionCatalogEntry(activeChainId, sessionAddress, config)
+            return buildSessionCatalogEntry(activeChainId, sessionAddress, config, factoryVersion)
           } catch {
             return null
           }
@@ -1005,15 +1088,17 @@ export function useSessionCatalogEntry(sessionAddress: string | null) {
       }
 
       const currentBlock = await provider.getBlockNumber()
-      const { deployBlock } = getAddresses(activeChainId)
+      const { factory, deployBlock } = getAddresses(activeChainId)
+      const factoryVersion = await detectFactoryAbiVersion(provider, factory)
+      const factoryContract = new Contract(factory, getFactoryAbi(factoryVersion), provider)
       const maxBlocksPerQuery = 9000
-      const filter = currentFactory.filters.SessionCreated(null, sessionAddress)
-      const matchedEvents: Awaited<ReturnType<typeof currentFactory.queryFilter>> = []
+      const filter = factoryContract.filters.SessionCreated(null, sessionAddress)
+      const matchedEvents: Awaited<ReturnType<typeof factoryContract.queryFilter>> = []
 
       let fromBlock = deployBlock
       while (fromBlock <= currentBlock) {
         const toBlock = Math.min(fromBlock + maxBlocksPerQuery - 1, currentBlock)
-        const batchEvents = await currentFactory.queryFilter(filter, fromBlock, toBlock)
+        const batchEvents = await factoryContract.queryFilter(filter, fromBlock, toBlock)
         matchedEvents.push(...batchEvents)
         fromBlock = toBlock + 1
       }
@@ -1025,7 +1110,7 @@ export function useSessionCatalogEntry(sessionAddress: string | null) {
         return
       }
 
-      const parsed = currentFactory.interface.parseLog(latestEvent)
+      const parsed = factoryContract.interface.parseLog(latestEvent)
       const parsedSessionAddress = parsed?.args?.[1]
       const config = parsed?.args?.[2] as readonly unknown[] | undefined
       if (!parsed || parsed.name !== "SessionCreated" || typeof parsedSessionAddress !== "string" || !config) {
@@ -1034,7 +1119,12 @@ export function useSessionCatalogEntry(sessionAddress: string | null) {
         return
       }
 
-      const nextSession = buildSessionCatalogEntry(activeChainId, parsedSessionAddress, config)
+      const nextSession = buildSessionCatalogEntry(
+        activeChainId,
+        parsedSessionAddress,
+        config,
+        factoryVersion
+      )
       setSession(nextSession)
       lastFetchKey.current = `${activeChainId}-${normalizedAddress}`
     } catch {
@@ -1095,6 +1185,7 @@ export function useSessionInfo(sessionAddress: string | null) {
       const [
         admin,
         creator,
+        productInfoId,
         sessionCommitment,
         treasury,
         ticketPrice,
@@ -1113,6 +1204,7 @@ export function useSessionInfo(sessionAddress: string | null) {
       ] = await Promise.all([
         currentSession.admin().catch(() => ZeroAddress),
         currentSession.creator().catch(() => ZeroAddress),
+        currentSession.productInfoId().catch(() => 0n),
         currentSession.sessionCommitment().catch(() => ZeroAddress),
         currentSession.treasury().catch(() => ZeroAddress),
         currentSession.ticketPrice().catch(() => 0n),
@@ -1150,6 +1242,7 @@ export function useSessionInfo(sessionAddress: string | null) {
         sessionAddress,
         admin: String(admin),
         creator: String(creator),
+        productInfoId: Number(productInfoId),
         sessionCommitment: String(sessionCommitment),
         treasury: String(treasury),
         ticketPrice: BigInt(ticketPrice),

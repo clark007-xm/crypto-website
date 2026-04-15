@@ -8,6 +8,7 @@ import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import { getSessionPhaseState, type SessionConfigFromEvent } from "@/lib/contracts/hooks"
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
+import { getProductInfoLabel, getProductInfoShortLabel } from "@/lib/product-info"
 import { formatEther, ZeroAddress } from "ethers"
 import Link from "next/link"
 
@@ -42,6 +43,8 @@ export function SessionCard({ session }: SessionCardProps) {
 
   // Determine if using ETH or ERC20 token
   const isEth = session.paymentToken === ZeroAddress
+  const productLabel = getProductInfoLabel(session.productInfoId)
+  const productShortLabel = getProductInfoShortLabel(session.productInfoId)
 
   // Format price - currently all tokens use 18 decimals (ETH and test ERC20)
   // TODO: Add proper decimal detection when supporting real USDT (6 decimals)
@@ -105,12 +108,12 @@ export function SessionCard({ session }: SessionCardProps) {
           <div className="flex min-w-0 items-center gap-3">
             <div className="avatar placeholder">
               <div className="bg-gradient-to-br from-primary/20 to-secondary/20 rounded-xl w-11 h-11">
-                <span className="text-sm font-bold text-primary">{isEth ? "ETH" : "TKN"}</span>
+                <span className="text-sm font-bold text-primary">{productShortLabel}</span>
               </div>
             </div>
             <div className="min-w-0">
               <h3 className="card-title text-base font-bold">
-                {isEth ? t.products.ethPool : t.products.tokenPool}
+                {productLabel}
               </h3>
               <Link 
                 href={getExplorerAddressUrl(session.chainId, session.sessionAddress)}

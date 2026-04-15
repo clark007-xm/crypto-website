@@ -182,6 +182,11 @@ export interface Dictionary {
     partnerShareHint: string
     platformFee: string
     platformFeeHint: string
+    productInfo: string
+    productInfoHint: string
+    productInfoPlaceholder: string
+    productInfoDialogTitle: string
+    productInfoDialogDesc: string
     secretKey: string
     secretKeyHint: string
     secretKeyPlaceholder: string

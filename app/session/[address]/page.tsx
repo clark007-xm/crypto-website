@@ -14,6 +14,7 @@ import {
   useSessionInfo,
 } from "@/lib/contracts/hooks"
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
+import { getProductInfoLabel, getProductInfoShortLabel } from "@/lib/product-info"
 import { useCountdown } from "@/hooks/use-countdown"
 import { BuyModal } from "@/components/buy-modal"
 import { CreatorPanel } from "@/components/creator-panel"
@@ -103,6 +104,8 @@ export default function SessionDetailPage() {
   
   // Calculate values
   const isEth = resolvedSession?.paymentToken === ZeroAddress
+  const productLabel = getProductInfoLabel(resolvedSession?.productInfoId)
+  const productShortLabel = getProductInfoShortLabel(resolvedSession?.productInfoId)
   const ticketPriceNum = resolvedSession ? Number(formatEther(resolvedSession.ticketPrice)) : 0
   const totalTickets = resolvedSession ? Number(resolvedSession.totalTickets) : 0
   const ticketsSold = resolvedSession ? Number(resolvedSession.ticketsSold) : 0
@@ -227,13 +230,13 @@ export default function SessionDetailPage() {
                 <div className="avatar placeholder">
                   <div className="bg-gradient-to-br from-primary/20 to-secondary/20 rounded-xl w-14 h-14">
                     <span className="text-lg font-bold text-primary">
-                      {isEth ? "ETH" : "TKN"}
+                      {productShortLabel}
                     </span>
                   </div>
                 </div>
                 <div>
                   <h1 className="text-xl font-bold">
-                    {isEth ? t.products.ethPool : t.products.tokenPool}
+                    {productLabel}
                   </h1>
                   <Link 
                     href={getExplorerAddressUrl(resolvedSession.chainId, sessionAddress)}

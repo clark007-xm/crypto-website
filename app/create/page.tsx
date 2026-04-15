@@ -1,16 +1,18 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import Link from "next/link"
 import { ArrowLeft, AlertTriangle, CheckCircle, Copy, Check, Eye, EyeOff, Wallet } from "lucide-react"
 import { formatEther, parseEther } from "ethers"
 import { Navbar } from "@/components/navbar"
+import { ProductInfoSelector } from "@/components/product-info-selector"
 import { useTransactionFlow } from "@/components/transaction-flow-provider"
 import { DurationPicker } from "@/components/duration-picker"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import { computeCreatorCommitment, saveLocalCreatorSecret } from "@/lib/creator-session-secret"
 import { useIsPartner, useCreateSession, usePartnerDeposit, useDepositToTreasury } from "@/lib/contracts/hooks"
+import { PRODUCT_INFO_OPTIONS, getProductInfoLabel } from "@/lib/product-info"
 import { 
   MAX_COMMIT_DURATION_DAYS, 
   MAX_COMMIT_DURATION_SECONDS,
@@ -28,6 +30,7 @@ export default function CreatePage() {
   const { deposit: doDeposit, loading: depositing, error: depositError } = useDepositToTreasury()
 
   // Form state
+  const [productInfoId, setProductInfoId] = useState<number | null>(null)
   const [ticketPrice, setTicketPrice] = useState("0.001")
   const [totalTickets, setTotalTickets] = useState("100")
   // Duration state: days, hours, minutes
@@ -114,10 +117,18 @@ export default function CreatePage() {
   const ETH_USDT_RATE = 2500
   const totalPoolUsdt = totalPoolEth * ETH_USDT_RATE
   const yourShareUsdt = yourShareEth * ETH_USDT_RATE
+  const selectedProductLabel = useMemo(
+    () => (productInfoId ? getProductInfoLabel(productInfoId) : t.create.productInfoPlaceholder),
+    [productInfoId, t.create.productInfoPlaceholder]
+  )
 
   // Handle form submit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!productInfoId) {
+      alert(t.create.productInfoPlaceholder)
+      return
+    }
     if (!secret.trim()) {
       alert(t.create.secretWarning)
       return
@@ -147,13 +158,14 @@ export default function CreatePage() {
       fields: [
         { label: t.tx.account, value: shortAddress ?? address ?? "-", tone: "success" },
         { label: t.tx.action, value: t.create.submit },
-        { label: t.tx.details, value: `${ticketPrice} ETH / ${totalTickets} tickets` },
+        { label: t.tx.details, value: `${selectedProductLabel} · ${ticketPrice} ETH / ${totalTickets} tickets` },
       ],
     })
 
     const sessionAddress = await createSession(
       {
         sessionCommitment: commitment,
+        productInfoId,
         ticketPrice: parsedTicketPrice,
         totalTickets: parseInt(totalTickets, 10),
         partnerShareBps: Math.round(partnerShareNum * 100),
@@ -237,13 +249,14 @@ export default function CreatePage() {
       <main className="min-h-screen bg-base-100 text-base-content">
         <Navbar />
         <div className="max-w-2xl mx-auto px-4 py-16">
-          <div className="card bg-base-200 border border-success/20">
-            <div className="card-body items-center text-center gap-4">
-              <CheckCircle className="h-16 w-16 text-success" />
-              <h2 className="card-title text-success">{t.create.success}</h2>
-              <p className="text-base-content/60 break-all font-mono text-sm">
-                {newSessionAddress}
-              </p>
+        <div className="card bg-base-200 border border-success/20">
+          <div className="card-body items-center text-center gap-4">
+            <CheckCircle className="h-16 w-16 text-success" />
+            <h2 className="card-title text-success">{t.create.success}</h2>
+            <p className="text-sm font-semibold text-base-content/70">{selectedProductLabel}</p>
+            <p className="text-base-content/60 break-all font-mono text-sm">
+              {newSessionAddress}
+            </p>
               <div className="card-actions mt-4">
                 <Link href="/" className="btn btn-primary">
                   {t.create.back}
@@ -339,6 +352,17 @@ export default function CreatePage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          <ProductInfoSelector
+            value={productInfoId}
+            options={PRODUCT_INFO_OPTIONS}
+            label={t.create.productInfo}
+            hint={t.create.productInfoHint}
+            placeholder={t.create.productInfoPlaceholder}
+            dialogTitle={t.create.productInfoDialogTitle}
+            dialogDescription={t.create.productInfoDialogDesc}
+            onChange={setProductInfoId}
+          />
+
           {/* Ticket Price */}
           <div className="form-control">
             <label className="label">
@@ -572,7 +596,11 @@ export default function CreatePage() {
           <div className="card bg-base-200 border border-base-content/10">
             <div className="card-body p-4">
               <h3 className="font-semibold text-sm text-base-content/60">{t.create.preview}</h3>
-              <div className="grid grid-cols-2 gap-4 mt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2">
+                <div>
+                  <p className="text-xs text-base-content/40 mb-1">{t.create.productInfo}</p>
+                  <p className="font-semibold">{selectedProductLabel}</p>
+                </div>
                 <div>
                   <p className="text-xs text-base-content/40">{t.create.totalPool}</p>
                   <p className="text-lg font-bold text-primary">{totalPoolEth.toFixed(4)} ETH</p>
@@ -599,7 +627,7 @@ export default function CreatePage() {
           <button
             type="submit"
             className="btn btn-primary btn-block btn-lg"
-            disabled={creating || !secret || isInsufficient}
+            disabled={creating || !secret || !productInfoId || isInsufficient}
           >
             {creating && <span className="loading loading-spinner"></span>}
             {creating ? t.create.creating : t.create.submit}

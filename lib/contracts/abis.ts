@@ -47,9 +47,11 @@ export const ERC20_ABI = [
 ] as const
 
 /* ── CommitRevealFactory ── */
-export const FACTORY_ABI = [
-  // Structs (inline in function signatures)
-  // SessionConfig: (admin, creator, sessionCommitment, treasury, paymentToken, ticketPrice, totalTickets, partnerShareBps, platformFeeBps, unsoldTicketsPartnerDepositSlashBps, creatorAbsentPartnerDepositSlashBps, commitDurationSeconds, revealDurationSeconds, unlockTimestamp)
+export const FACTORY_ABI_LEGACY = [
+  // Legacy SessionConfig:
+  // (admin, creator, sessionCommitment, treasury, paymentToken, ticketPrice, totalTickets,
+  //  partnerShareBps, platformFeeBps, unsoldTicketsPartnerDepositSlashBps,
+  //  creatorAbsentPartnerDepositSlashBps, commitDurationSeconds, revealDurationSeconds, unlockTimestamp)
 
   // Read
   "function admin() view returns (address)",
@@ -57,7 +59,7 @@ export const FACTORY_ABI = [
   "function isPartner(address account) view returns (bool)",
   "function platformFeeBps() view returns (uint16)",
   "function creatorAbsentPartnerDepositSlashBps() view returns (uint16)",
-  
+
   // Write
   "function createSession(tuple(address admin, address creator, bytes32 sessionCommitment, address treasury, address paymentToken, uint256 ticketPrice, uint256 totalTickets, uint16 partnerShareBps, uint16 platformFeeBps, uint16 unsoldTicketsPartnerDepositSlashBps, uint16 creatorAbsentPartnerDepositSlashBps, uint256 commitDurationSeconds, uint256 revealDurationSeconds, uint256 unlockTimestamp) config) external returns (address session)",
   "function setPartner(address partner, bool enabled) external",
@@ -71,11 +73,36 @@ export const FACTORY_ABI = [
   "event PartnerRemoved(address partner)",
 ] as const
 
+export const FACTORY_ABI = [
+  // Structs (inline in function signatures)
+  // SessionConfig: (admin, creator, productInfoId, sessionCommitment, treasury, paymentToken, ticketPrice, totalTickets, partnerShareBps, platformFeeBps, unsoldTicketsPartnerDepositSlashBps, creatorAbsentPartnerDepositSlashBps, commitDurationSeconds, revealDurationSeconds, unlockTimestamp)
+
+  // Read
+  "function admin() view returns (address)",
+  "function treasury() view returns (address)",
+  "function isPartner(address account) view returns (bool)",
+  "function platformFeeBps() view returns (uint16)",
+  "function creatorAbsentPartnerDepositSlashBps() view returns (uint16)",
+  
+  // Write
+  "function createSession(tuple(address admin, address creator, uint256 productInfoId, bytes32 sessionCommitment, address treasury, address paymentToken, uint256 ticketPrice, uint256 totalTickets, uint16 partnerShareBps, uint16 platformFeeBps, uint16 unsoldTicketsPartnerDepositSlashBps, uint16 creatorAbsentPartnerDepositSlashBps, uint256 commitDurationSeconds, uint256 revealDurationSeconds, uint256 unlockTimestamp) config) external returns (address session)",
+  "function setPartner(address partner, bool enabled) external",
+  "function setPlatformFeeBps(uint16 bps) external",
+  "function setCreatorAbsentPartnerDepositSlashBps(uint16 bps) external",
+  "function emergencyUnlockPartnerDeposit(address session, address partner) external",
+
+  // Events
+  "event SessionCreated(address indexed creator, address indexed session, tuple(address admin, address creator, uint256 productInfoId, bytes32 sessionCommitment, address treasury, address paymentToken, uint256 ticketPrice, uint256 totalTickets, uint16 partnerShareBps, uint16 platformFeeBps, uint16 unsoldTicketsPartnerDepositSlashBps, uint16 creatorAbsentPartnerDepositSlashBps, uint256 commitDurationSeconds, uint256 revealDurationSeconds, uint256 unlockTimestamp) config)",
+  "event PartnerAdded(address partner)",
+  "event PartnerRemoved(address partner)",
+] as const
+
 /* ── CommitRevealSession ── */
 export const SESSION_ABI = [
   // Read - State variables (from ABI)
   "function admin() view returns (address)",
   "function creator() view returns (address)",
+  "function productInfoId() view returns (uint256)",
   "function commitDurationSeconds() view returns (uint256)",
   "function creatorAbsentPartnerDepositSlashBps() view returns (uint16)",
   "function isSettled() view returns (bool)",
