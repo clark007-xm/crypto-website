@@ -1,13 +1,11 @@
+import WebpackObfuscator from "webpack-obfuscator"
+
 /** @type {import('next').NextConfig} */
 const isProd = process.env.NODE_ENV === "production"
 
 const nextConfig = {
   compiler: {
-    removeConsole: isProd
-      ? {
-          exclude: ["error", "warn"],
-        }
-      : false,
+    removeConsole: isProd,
   },
 
   headers: async () => {
@@ -38,6 +36,36 @@ const nextConfig = {
   },
 
   productionBrowserSourceMaps: false,
+
+  webpack: (config, { dev, isServer }) => {
+    if (!dev && !isServer) {
+      config.plugins.push(
+        new WebpackObfuscator(
+          {
+            compact: true,
+            identifierNamesGenerator: "hexadecimal",
+            renameGlobals: false,
+            rotateStringArray: true,
+            selfDefending: false,
+            simplify: true,
+            splitStrings: false,
+            stringArray: true,
+            stringArrayThreshold: 0.75,
+            transformObjectKeys: true,
+            unicodeEscapeSequence: false,
+          },
+          [
+            "**/polyfills-*.js",
+            "**/webpack-*.js",
+            "**/framework-*.js",
+            "**/main-*.js",
+          ]
+        )
+      )
+    }
+
+    return config
+  },
 }
 
 export default nextConfig
