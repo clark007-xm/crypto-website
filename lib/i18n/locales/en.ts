@@ -173,7 +173,7 @@ export const en: Dictionary = {
     platformFee: "Platform Fee",
     platformFeeHint: "Percentage platform charges from the pool",
     productInfo: "Prize Type",
-    productInfoHint: "Choose a product ID for this session. Currently 1 maps to iPhone and 2 maps to Tesla, and this table can be extended later.",
+    productInfoHint: "",
     productInfoPlaceholder: "Select a prize type",
     productInfoDialogTitle: "Choose Prize Type",
     productInfoDialogDesc: "Pick the mapped prize for this session on mobile.",

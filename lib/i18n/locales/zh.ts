@@ -173,7 +173,7 @@ export const zh: Dictionary = {
     platformFee: "平台手续费",
     platformFeeHint: "平台从奖池中收取的手续费比例",
     productInfo: "奖品类型",
-    productInfoHint: "创建桌子时选择一个奖品编号，当前 1 映射 iPhone，2 映射特斯拉，后续可继续扩展。",
+    productInfoHint: "",
     productInfoPlaceholder: "请选择奖品类型",
     productInfoDialogTitle: "选择奖品类型",
     productInfoDialogDesc: "移动端请在这里选择本次桌子对应的奖品。",

@@ -12,6 +12,7 @@ import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import { computeCreatorCommitment, saveLocalCreatorSecret } from "@/lib/creator-session-secret"
 import { useIsPartner, useCreateSession, usePartnerDeposit, useDepositToTreasury } from "@/lib/contracts/hooks"
+import { saveLocalSessionProductInfo } from "@/lib/local-session-product-info"
 import { PRODUCT_INFO_OPTIONS, getProductInfoLabel } from "@/lib/product-info"
 import { 
   MAX_COMMIT_DURATION_DAYS, 
@@ -180,6 +181,12 @@ export default function CreatePage() {
       saveLocalCreatorSecret(sessionAddress, {
         secret: secret.trim(),
         commitment,
+        savedAt: Date.now(),
+        creator: address ?? undefined,
+        chainId: chainId ?? undefined,
+      })
+      saveLocalSessionProductInfo(sessionAddress, {
+        productInfoId,
         savedAt: Date.now(),
         creator: address ?? undefined,
         chainId: chainId ?? undefined,

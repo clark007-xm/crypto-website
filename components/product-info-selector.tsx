@@ -155,9 +155,11 @@ export function ProductInfoSelector({
         </Select>
       )}
 
-      <label className="label">
-        <span className="label-text-alt text-base-content/40">{hint}</span>
-      </label>
+      {hint.trim() ? (
+        <label className="label">
+          <span className="label-text-alt text-base-content/40">{hint}</span>
+        </label>
+      ) : null}
     </div>
   )
 }

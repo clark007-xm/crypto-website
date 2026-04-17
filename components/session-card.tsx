@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useEffect, useState, useMemo } from "react"
 import dynamic from "next/dynamic"
 import { Clock, Users, Flame, ExternalLink } from "lucide-react"
 import { useCountdown } from "@/hooks/use-countdown"
@@ -8,6 +8,7 @@ import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import { getSessionPhaseState, type SessionConfigFromEvent } from "@/lib/contracts/hooks"
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
+import { loadLocalSessionProductInfo } from "@/lib/local-session-product-info"
 import { getProductInfoLabel, getProductInfoShortLabel } from "@/lib/product-info"
 import { formatEther, ZeroAddress } from "ethers"
 import Link from "next/link"
@@ -27,7 +28,21 @@ export function SessionCard({ session }: SessionCardProps) {
   const t = useT()
   const { status } = useWallet()
   const [modalOpen, setModalOpen] = useState(false)
+  const [resolvedProductInfoId, setResolvedProductInfoId] = useState<number>(
+    Number(session.productInfoId ?? 0)
+  )
   const phase = getSessionPhaseState(session.unlockTimestamp, session.commitDeadline, session.isSettled)
+
+  useEffect(() => {
+    const chainValue = Number(session.productInfoId ?? 0)
+    if (chainValue > 0) {
+      setResolvedProductInfoId(chainValue)
+      return
+    }
+
+    const localRecord = loadLocalSessionProductInfo(session.sessionAddress, session.chainId)
+    setResolvedProductInfoId(localRecord?.productInfoId ?? 0)
+  }, [session.chainId, session.productInfoId, session.sessionAddress])
 
   // Calculate countdown from commitDeadline (memoize to prevent infinite re-renders)
   const endTimeMs = useMemo(() => {
@@ -43,8 +58,8 @@ export function SessionCard({ session }: SessionCardProps) {
 
   // Determine if using ETH or ERC20 token
   const isEth = session.paymentToken === ZeroAddress
-  const productLabel = getProductInfoLabel(session.productInfoId)
-  const productShortLabel = getProductInfoShortLabel(session.productInfoId)
+  const productLabel = getProductInfoLabel(resolvedProductInfoId)
+  const productShortLabel = getProductInfoShortLabel(resolvedProductInfoId)
 
   // Format price - currently all tokens use 18 decimals (ETH and test ERC20)
   // TODO: Add proper decimal detection when supporting real USDT (6 decimals)
@@ -103,6 +118,26 @@ export function SessionCard({ session }: SessionCardProps) {
   return (
     <div className="card bg-base-200 border border-base-content/5 hover:border-primary/30 transition-all duration-300 group">
       <div className="card-body gap-3 sm:gap-4 p-4 sm:p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="inline-flex h-8 items-center rounded-full border border-primary/20 bg-primary/10 px-3 text-xs font-bold tracking-[0.02em] text-primary shadow-sm">
+            {productLabel}
+          </div>
+          <div className="flex max-w-[148px] shrink-0 flex-wrap justify-end gap-1.5 self-start">
+            {tags.map((tag) => {
+              const Icon = tag.icon
+              return (
+                <div
+                  key={tag.label}
+                  className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-[11px] font-bold tracking-[0.02em] whitespace-nowrap shadow-sm ${tag.className}`}
+                >
+                  {Icon && <Icon className="h-3.5 w-3.5" />}
+                  <span>{tag.label}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
         {/* Header row */}
         <div className="flex items-start justify-between">
           <div className="flex min-w-0 items-center gap-3">
@@ -125,20 +160,6 @@ export function SessionCard({ session }: SessionCardProps) {
                 <ExternalLink className="h-3 w-3" />
               </Link>
             </div>
-          </div>
-          <div className="ml-3 flex max-w-[148px] shrink-0 flex-wrap justify-end gap-1.5 self-start">
-            {tags.map((tag) => {
-              const Icon = tag.icon
-              return (
-                <div
-                  key={tag.label}
-                  className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-[11px] font-bold tracking-[0.02em] whitespace-nowrap shadow-sm ${tag.className}`}
-                >
-                  {Icon && <Icon className="h-3.5 w-3.5" />}
-                  <span>{tag.label}</span>
-                </div>
-              )
-            })}
           </div>
         </div>
 

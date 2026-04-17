@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
 import dynamic from "next/dynamic"
 import { ArrowLeft, Clock, ExternalLink, Ticket } from "lucide-react"
@@ -14,6 +14,7 @@ import {
   useSessionInfo,
 } from "@/lib/contracts/hooks"
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
+import { loadLocalSessionProductInfo } from "@/lib/local-session-product-info"
 import { getProductInfoLabel, getProductInfoShortLabel } from "@/lib/product-info"
 import { useCountdown } from "@/hooks/use-countdown"
 import { BuyModal } from "@/components/buy-modal"
@@ -74,6 +75,7 @@ export default function SessionDetailPage() {
     refresh: refreshSessionInfo,
   } = useSessionInfo(sessionAddress)
   const { tickets: playerTicketCount, refresh: refreshPlayerTickets } = usePlayerTickets(sessionAddress)
+  const [resolvedProductInfoId, setResolvedProductInfoId] = useState(0)
   
   // Buy modal state
   const [buyModalOpen, setBuyModalOpen] = useState(false)
@@ -85,6 +87,25 @@ export default function SessionDetailPage() {
         resolvedSession.isSettled
       )
     : null
+
+  useEffect(() => {
+    if (!resolvedSession) {
+      setResolvedProductInfoId(0)
+      return
+    }
+
+    const chainValue = Number(resolvedSession.productInfoId ?? 0)
+    if (chainValue > 0) {
+      setResolvedProductInfoId(chainValue)
+      return
+    }
+
+    const localRecord = loadLocalSessionProductInfo(
+      resolvedSession.sessionAddress,
+      resolvedSession.chainId
+    )
+    setResolvedProductInfoId(localRecord?.productInfoId ?? 0)
+  }, [resolvedSession])
   
   // Countdown
   const countdownTarget =
@@ -104,8 +125,8 @@ export default function SessionDetailPage() {
   
   // Calculate values
   const isEth = resolvedSession?.paymentToken === ZeroAddress
-  const productLabel = getProductInfoLabel(resolvedSession?.productInfoId)
-  const productShortLabel = getProductInfoShortLabel(resolvedSession?.productInfoId)
+  const productLabel = getProductInfoLabel(resolvedProductInfoId)
+  const productShortLabel = getProductInfoShortLabel(resolvedProductInfoId)
   const ticketPriceNum = resolvedSession ? Number(formatEther(resolvedSession.ticketPrice)) : 0
   const totalTickets = resolvedSession ? Number(resolvedSession.totalTickets) : 0
   const ticketsSold = resolvedSession ? Number(resolvedSession.ticketsSold) : 0
