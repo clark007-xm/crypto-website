@@ -12,6 +12,7 @@ import {
 import { useTransactionFlow } from "@/components/transaction-flow-provider";
 import {
   doesCreatorSecretMatchCommitment,
+  getCreatorCommitmentMatchType,
   loadLocalCreatorSecret,
   type LocalCreatorSecretRecord,
 } from "@/lib/creator-session-secret";
@@ -112,7 +113,6 @@ export function CreatorPanel({
     isCreator &&
     !session.isSettled &&
     allTicketsSold &&
-    commitEnded &&
     !revealEnded;
   const canFinalizeCreatorAbsent =
     isAdmin && !session.isSettled && allTicketsSold && revealEnded;
@@ -150,6 +150,15 @@ export function CreatorPanel({
     const normalizedSecret = revealSecret.trim();
     if (!normalizedSecret) {
       setRevealValidationError(t.session.revealSecretRequired);
+      return;
+    }
+
+    const commitmentMatchType = getCreatorCommitmentMatchType(
+      normalizedSecret,
+      session.sessionCommitment,
+    );
+    if (commitmentMatchType === "legacy") {
+      setRevealValidationError(t.session.legacyCommitmentDetected);
       return;
     }
 
@@ -385,10 +394,16 @@ export function CreatorPanel({
               </div>
             )}
 
-            {!commitEnded && (
+            {!commitEnded && !allTicketsSold && (
               <div className="alert alert-warning py-2">
                 <AlertTriangle className="h-4 w-4" />
                 <span className="text-sm">{t.session.commitNotEnded}</span>
+              </div>
+            )}
+            {!commitEnded && allTicketsSold && !session.isSettled && (
+              <div className="alert alert-success py-2">
+                <CheckCircle className="h-4 w-4" />
+                <span className="text-sm">{t.session.revealReadyEarly}</span>
               </div>
             )}
             {revealEnded && !session.isSettled && (

@@ -4,6 +4,8 @@ import WebpackObfuscator from "webpack-obfuscator"
 const isProd = process.env.NODE_ENV === "production"
 
 const nextConfig = {
+  turbopack: {},
+
   compiler: {
     removeConsole: isProd,
   },

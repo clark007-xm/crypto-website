@@ -100,10 +100,26 @@ function PurchaseOrderContent({
             <span className="rounded-full border border-base-content/10 bg-base-200 px-3 py-1 text-xs font-semibold text-base-content/70">
               {formatTicketRange(record.firstTicketIndex, record.lastTicketIndex)}
             </span>
+            {record.isWinningRecord && (
+              <span className="rounded-full border border-success/20 bg-success/10 px-3 py-1 text-xs font-semibold text-success">
+                {t.session.wonBadge}
+              </span>
+            )}
           </div>
         </div>
       </AccordionTrigger>
       <AccordionContent className="pt-1">
+        {record.isWinningRecord && (
+          <div className="alert alert-success mb-3 py-3 text-sm">
+            <span>
+              {t.session.prizeAutoSent}
+              {record.winningTicketIndex !== null
+                ? ` ${t.session.winnerTicket}: #${record.winningTicketIndex.toString()}`
+                : ""}
+            </span>
+          </div>
+        )}
+
         <div className="grid gap-3 sm:grid-cols-2">
           <InfoCard label={t.session.quantity} value={record.quantity.toString()} />
           <InfoCard
@@ -115,6 +131,12 @@ function PurchaseOrderContent({
             value={formatPurchaseAmount(totalCostWei, isEth)}
           />
           <InfoCard label={t.session.purchasedAt} value={purchasedAt} />
+          {record.isWinningRecord && record.winningTicketIndex !== null && (
+            <InfoCard
+              label={t.session.winnerTicket}
+              value={`#${record.winningTicketIndex.toString()}`}
+            />
+          )}
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-base-content/5 bg-base-200/70 px-4 py-3">
@@ -403,6 +425,11 @@ export function AllPurchaseHistory() {
                         <span className="rounded-full border border-primary/15 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
                           {t.session.ticketsCount.replace("{count}", group.totalTickets.toString())}
                         </span>
+                        {group.records.some((record) => record.isWinningRecord) && (
+                          <span className="rounded-full border border-success/20 bg-success/10 px-3 py-1 text-xs font-semibold text-success">
+                            {t.session.wonBadge}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </AccordionTrigger>

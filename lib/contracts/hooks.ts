@@ -1280,6 +1280,7 @@ export function useSessionCatalogEntry(sessionAddress: string | null) {
 
 export interface SessionInfo extends SessionConfigFromEvent {
   winner: string;
+  winningTicketIndex: bigint | null;
   isCommitPhaseActive: boolean;
   canSettle: boolean;
 }
@@ -1368,6 +1369,10 @@ export function useSessionInfo(sessionAddress: string | null) {
       const settlementType = Boolean(isSettled)
         ? normalizeSettlementType(rawSettlementType)
         : null;
+      const winnerSelection =
+        Boolean(isSettled) && settlementType === SESSION_SETTLEMENT_TYPES.NORMAL
+          ? await querySessionWinnerSelection(currentSession)
+          : null;
 
       setInfo({
         chainId: activeChainId,
@@ -1391,7 +1396,8 @@ export function useSessionInfo(sessionAddress: string | null) {
         ),
         isSettled: Boolean(isSettled),
         settlementType,
-        winner: ZeroAddress,
+        winner: winnerSelection?.winner ?? ZeroAddress,
+        winningTicketIndex: winnerSelection?.ticketIndex ?? null,
         unlockTimestamp: BigInt(unlockTimestamp),
         commitDurationSeconds: BigInt(commitDurationSeconds),
         revealDurationSeconds: BigInt(revealDurationSeconds),
@@ -1469,6 +1475,8 @@ export interface SessionPurchaseRecord {
   firstTicketIndex: bigint;
   lastTicketIndex: bigint;
   logIndex: number;
+  isWinningRecord: boolean;
+  winningTicketIndex: bigint | null;
 }
 
 export interface GlobalSessionPurchaseRecord extends SessionPurchaseRecord {
@@ -1579,6 +1587,58 @@ async function querySessionPurchaseEvents(
 ) {
   const filter = currentSession.filters.TicketsPurchased(playerAddress);
   return currentSession.queryFilter(filter);
+}
+
+interface WinnerSelectionResult {
+  winner: string;
+  ticketIndex: bigint;
+  blockNumber: number;
+  logIndex: number;
+}
+
+async function querySessionWinnerSelection(
+  currentSession: Contract,
+  winnerAddress?: string | null,
+) {
+  const filter = winnerAddress
+    ? currentSession.filters.WinnerSelected(winnerAddress)
+    : currentSession.filters.WinnerSelected();
+  const events = await currentSession.queryFilter(filter);
+
+  const winnerEvents = events
+    .map((event) => {
+      try {
+        const parsed = currentSession.interface.parseLog(event);
+        if (!parsed || parsed.name !== "WinnerSelected") {
+          return null;
+        }
+
+        return {
+          winner: String(parsed.args?.winner ?? parsed.args?.[0] ?? ZeroAddress),
+          ticketIndex: BigInt(
+            (parsed.args?.ticketIndex ?? parsed.args?.[1] ?? 0) as
+              | bigint
+              | number
+              | string,
+          ),
+          blockNumber: event.blockNumber,
+          logIndex: Number(
+            (event as { logIndex?: number; index?: number }).logIndex ??
+              (event as { index?: number }).index ??
+              0,
+          ),
+        } satisfies WinnerSelectionResult;
+      } catch {
+        return null;
+      }
+    })
+    .filter((event): event is WinnerSelectionResult => Boolean(event))
+    .sort((a, b) => {
+      if (b.blockNumber !== a.blockNumber) return b.blockNumber - a.blockNumber;
+      return b.logIndex - a.logIndex;
+    });
+
+  return winnerEvents[0] ?? null;
 }
 
 async function loadPurchaseLogsForBatch(
@@ -1695,10 +1755,151 @@ async function queryPurchaseLogsAcrossSessions(
   );
 }
 
+async function queryWinnerLogsAcrossSessions(
+  provider: PurchaseLogProvider,
+  sessionAddresses: string[],
+  winnerAddress: string,
+  fromBlock: number,
+  toBlock: number,
+) {
+  if (sessionAddresses.length === 0 || fromBlock > toBlock) {
+    return [] as PurchaseLogLike[];
+  }
+
+  const topics = SESSION_INTERFACE.encodeFilterTopics("WinnerSelected", [
+    winnerAddress,
+  ]);
+  const addressChunks = chunkValues(
+    sessionAddresses,
+    PURCHASE_LOG_ADDRESS_CHUNK_SIZE,
+  );
+  const blockRanges = buildBlockRanges(
+    fromBlock,
+    toBlock,
+    PURCHASE_LOG_BLOCK_RANGE,
+  );
+  const requests = addressChunks.flatMap((addresses) =>
+    blockRanges.map(
+      (range) =>
+        ({
+          sessionAddresses: addresses,
+          fromBlock: range.fromBlock,
+          toBlock: range.toBlock,
+        }) satisfies PurchaseLogBatchRequest,
+    ),
+  );
+
+  const primaryResults = await runTasksWithConcurrency(
+    requests.map(
+      (request) => () => loadPurchaseLogsForBatch(provider, request, topics),
+    ),
+    PURCHASE_LOG_CONCURRENCY,
+  );
+
+  const logs: PurchaseLogLike[] = [];
+  const fallbackRequests: PurchaseLogBatchRequest[] = [];
+
+  primaryResults.forEach((result, index) => {
+    if (result.status === "fulfilled") {
+      logs.push(...result.value);
+      return;
+    }
+
+    const request = requests[index];
+    if (request.sessionAddresses.length <= 1) {
+      return;
+    }
+
+    fallbackRequests.push(
+      ...request.sessionAddresses.map(
+        (sessionAddress) =>
+          ({
+            sessionAddresses: [sessionAddress],
+            fromBlock: request.fromBlock,
+            toBlock: request.toBlock,
+          }) satisfies PurchaseLogBatchRequest,
+      ),
+    );
+  });
+
+  if (fallbackRequests.length > 0) {
+    const fallbackResults = await runTasksWithConcurrency(
+      fallbackRequests.map(
+        (request) => () => loadPurchaseLogsForBatch(provider, request, topics),
+      ),
+      PURCHASE_LOG_CONCURRENCY,
+    );
+
+    fallbackResults.forEach((result) => {
+      if (result.status === "fulfilled") {
+        logs.push(...result.value);
+      }
+    });
+  }
+
+  return Array.from(
+    new Map(
+      logs.map((log) => [
+        `${log.address.toLowerCase()}-${log.transactionHash}-${Number(log.index ?? log.logIndex ?? 0)}`,
+        log,
+      ]),
+    ).values(),
+  );
+}
+
+function parseWinnerSelectionLogs(
+  logs: PurchaseLogLike[],
+  userAddress?: string | null,
+) {
+  const winnerSelections = new Map<string, WinnerSelectionResult>();
+
+  logs.forEach((log) => {
+    try {
+      const parsed = SESSION_INTERFACE.parseLog(log);
+      if (!parsed || parsed.name !== "WinnerSelected") {
+        return;
+      }
+
+      const winner = String(parsed.args?.winner ?? parsed.args?.[0] ?? ZeroAddress);
+      if (userAddress && winner.toLowerCase() !== userAddress.toLowerCase()) {
+        return;
+      }
+
+      const nextWinnerSelection = {
+        winner,
+        ticketIndex: BigInt(
+          (parsed.args?.ticketIndex ?? parsed.args?.[1] ?? 0) as
+            | bigint
+            | number
+            | string,
+        ),
+        blockNumber: log.blockNumber,
+        logIndex: Number(log.logIndex ?? log.index ?? 0),
+      } satisfies WinnerSelectionResult;
+      const key = log.address.toLowerCase();
+      const currentWinnerSelection = winnerSelections.get(key);
+
+      if (
+        !currentWinnerSelection ||
+        nextWinnerSelection.blockNumber > currentWinnerSelection.blockNumber ||
+        (nextWinnerSelection.blockNumber === currentWinnerSelection.blockNumber &&
+          nextWinnerSelection.logIndex > currentWinnerSelection.logIndex)
+      ) {
+        winnerSelections.set(key, nextWinnerSelection);
+      }
+    } catch {
+      return;
+    }
+  });
+
+  return winnerSelections;
+}
+
 function parseSessionPurchaseEvents(
   currentSession: Contract,
   events: Awaited<ReturnType<Contract["queryFilter"]>>,
   blockTimestampMap: Map<number, number>,
+  winningTicketIndex: bigint | null = null,
 ) {
   return events
     .map((event) => {
@@ -1723,6 +1924,10 @@ function parseSessionPurchaseEvents(
         const firstTicketIndex =
           nextIndex >= quantity ? nextIndex - quantity : 0n;
         const lastTicketIndex = nextIndex > 0n ? nextIndex - 1n : 0n;
+        const isWinningRecord =
+          winningTicketIndex !== null &&
+          winningTicketIndex >= firstTicketIndex &&
+          winningTicketIndex <= lastTicketIndex;
 
         return {
           transactionHash: event.transactionHash,
@@ -1732,6 +1937,8 @@ function parseSessionPurchaseEvents(
           nextIndex,
           firstTicketIndex,
           lastTicketIndex,
+          isWinningRecord,
+          winningTicketIndex: isWinningRecord ? winningTicketIndex : null,
           logIndex: Number(
             (event as { logIndex?: number; index?: number }).logIndex ??
               (event as { index?: number }).index ??
@@ -1774,7 +1981,10 @@ export function useSessionPurchaseHistory(sessionAddress: string | null) {
         return;
       }
 
-      const events = await querySessionPurchaseEvents(currentSession, address);
+      const [events, winnerSelection] = await Promise.all([
+        querySessionPurchaseEvents(currentSession, address),
+        querySessionWinnerSelection(currentSession, address).catch(() => null),
+      ]);
       const uniqueBlockNumbers = [
         ...new Set(
           events
@@ -1790,6 +2000,7 @@ export function useSessionPurchaseHistory(sessionAddress: string | null) {
         currentSession,
         events,
         blockTimestampMap,
+        winnerSelection?.ticketIndex ?? null,
       );
 
       setRecords(purchaseRecords);
@@ -1845,13 +2056,24 @@ export function useAllPurchaseHistory() {
       );
       const { deployBlock } = getAddresses(sessions[0].chainId);
       const currentBlock = await readProvider.getBlockNumber();
-      const logs = await queryPurchaseLogsAcrossSessions(
-        readProvider,
-        sessions.map((session) => session.sessionAddress),
-        address,
-        deployBlock,
-        currentBlock,
-      );
+      const sessionAddresses = sessions.map((session) => session.sessionAddress);
+      const [logs, winnerLogs] = await Promise.all([
+        queryPurchaseLogsAcrossSessions(
+          readProvider,
+          sessionAddresses,
+          address,
+          deployBlock,
+          currentBlock,
+        ),
+        queryWinnerLogsAcrossSessions(
+          readProvider,
+          sessionAddresses,
+          address,
+          deployBlock,
+          currentBlock,
+        ).catch(() => [] as PurchaseLogLike[]),
+      ]);
+      const winnerSelectionMap = parseWinnerSelectionLogs(winnerLogs, address);
       const uniqueBlockNumbers = [
         ...new Set(
           logs
@@ -1891,6 +2113,12 @@ export function useAllPurchaseHistory() {
             const firstTicketIndex =
               nextIndex >= quantity ? nextIndex - quantity : 0n;
             const lastTicketIndex = nextIndex > 0n ? nextIndex - 1n : 0n;
+            const winnerSelection = winnerSelectionMap.get(log.address.toLowerCase());
+            const winningTicketIndex = winnerSelection?.ticketIndex ?? null;
+            const isWinningRecord =
+              winningTicketIndex !== null &&
+              winningTicketIndex >= firstTicketIndex &&
+              winningTicketIndex <= lastTicketIndex;
 
             return {
               transactionHash: log.transactionHash,
@@ -1900,6 +2128,8 @@ export function useAllPurchaseHistory() {
               nextIndex,
               firstTicketIndex,
               lastTicketIndex,
+              isWinningRecord,
+              winningTicketIndex: isWinningRecord ? winningTicketIndex : null,
               logIndex: Number(log.logIndex ?? log.index ?? 0),
               session,
             } satisfies GlobalSessionPurchaseRecord;

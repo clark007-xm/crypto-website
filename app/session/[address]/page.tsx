@@ -10,6 +10,7 @@ import Link from "next/link"
 import { useT } from "@/lib/i18n/context"
 import {
   getSessionPhaseState,
+  SESSION_SETTLEMENT_TYPES,
   usePlayerTickets,
   useSessionInfo,
 } from "@/lib/contracts/hooks"
@@ -428,6 +429,9 @@ export default function SessionDetailPage() {
           <div className="card bg-base-200 border border-success/30">
             <div className="card-body text-center">
               <p className="text-success font-bold">{t.session.sessionSettled}</p>
+              {resolvedSession.settlementType === SESSION_SETTLEMENT_TYPES.NORMAL && (
+                <p className="mt-2 text-sm text-base-content/60">{t.session.prizeAutoSent}</p>
+              )}
             </div>
           </div>
         )}

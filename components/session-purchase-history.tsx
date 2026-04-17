@@ -298,10 +298,26 @@ export function SessionPurchaseHistory({
                         <span className="rounded-full border border-base-content/10 bg-base-200 px-3 py-1 text-xs font-semibold text-base-content/70">
                           {formatTicketRange(record.firstTicketIndex, record.lastTicketIndex)}
                         </span>
+                        {record.isWinningRecord && (
+                          <span className="rounded-full border border-success/20 bg-success/10 px-3 py-1 text-xs font-semibold text-success">
+                            {t.session.wonBadge}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </AccordionTrigger>
                   <AccordionContent className="pt-1">
+                    {record.isWinningRecord && (
+                      <div className="alert alert-success mb-3 py-3 text-sm">
+                        <span>
+                          {t.session.prizeAutoSent}
+                          {record.winningTicketIndex !== null
+                            ? ` ${t.session.winnerTicket}: #${record.winningTicketIndex.toString()}`
+                            : ""}
+                        </span>
+                      </div>
+                    )}
+
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="rounded-2xl border border-base-content/5 bg-base-200/70 p-4">
                         <p className="text-xs text-base-content/45">{t.session.quantity}</p>
@@ -319,6 +335,14 @@ export function SessionPurchaseHistory({
                         <p className="text-xs text-base-content/45">{t.session.purchasedAt}</p>
                         <p className="mt-1 font-semibold">{purchasedAt}</p>
                       </div>
+                      {record.isWinningRecord && record.winningTicketIndex !== null && (
+                        <div className="rounded-2xl border border-success/15 bg-success/5 p-4">
+                          <p className="text-xs text-base-content/45">{t.session.winnerTicket}</p>
+                          <p className="mt-1 font-semibold text-success">
+                            #{record.winningTicketIndex.toString()}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     <div className="mt-3 flex items-center justify-between rounded-2xl border border-base-content/5 bg-base-200/70 px-4 py-3">

@@ -30,7 +30,10 @@ function isLocalCreatorSecretRecord(candidate: unknown): candidate is LocalCreat
 export function computeCreatorCommitment(secret: string) {
   const normalizedSecret = normalizeSecret(secret)
   if (!normalizedSecret) return ""
-  return keccak256(toUtf8Bytes(normalizedSecret))
+  return solidityPackedKeccak256(
+    ["bytes", "bytes32"],
+    [toUtf8Bytes(normalizedSecret), ZeroHash]
+  )
 }
 
 export function computeCreatorRevealCommitmentCandidates(secret: string) {
@@ -40,17 +43,38 @@ export function computeCreatorRevealCommitmentCandidates(secret: string) {
   const revealData = toUtf8Bytes(normalizedSecret)
   return Array.from(
     new Set([
-      keccak256(revealData).toLowerCase(),
       solidityPackedKeccak256(["bytes", "bytes32"], [revealData, ZeroHash]).toLowerCase(),
+      keccak256(revealData).toLowerCase(),
     ])
   )
 }
 
-export function doesCreatorSecretMatchCommitment(secret: string, sessionCommitment: string) {
+export function getCreatorCommitmentMatchType(secret: string, sessionCommitment: string) {
   const normalizedCommitment = sessionCommitment.trim().toLowerCase()
-  if (!normalizedCommitment) return false
+  if (!normalizedCommitment) return "none" as const
 
-  return computeCreatorRevealCommitmentCandidates(secret).includes(normalizedCommitment)
+  const normalizedSecret = normalizeSecret(secret)
+  if (!normalizedSecret) return "none" as const
+
+  const revealData = toUtf8Bytes(normalizedSecret)
+  const currentCommitment = solidityPackedKeccak256(
+    ["bytes", "bytes32"],
+    [revealData, ZeroHash]
+  ).toLowerCase()
+  if (currentCommitment === normalizedCommitment) {
+    return "current" as const
+  }
+
+  const legacyCommitment = keccak256(revealData).toLowerCase()
+  if (legacyCommitment === normalizedCommitment) {
+    return "legacy" as const
+  }
+
+  return "none" as const
+}
+
+export function doesCreatorSecretMatchCommitment(secret: string, sessionCommitment: string) {
+  return getCreatorCommitmentMatchType(secret, sessionCommitment) !== "none"
 }
 
 export function buildCreatorRevealPayload(secret: string) {

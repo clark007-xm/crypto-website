@@ -252,7 +252,9 @@ export interface Dictionary {
     revealing: string
     revealSuccess: string
     revealWindowEnded: string
+    revealReadyEarly: string
     revealSecretRequired: string
+    legacyCommitmentDetected: string
     secretMismatch: string
     localCreatorSecretFound: string
     localCreatorSecretSavedAt: string
@@ -317,6 +319,9 @@ export interface Dictionary {
     treasuryPayment: string
     walletPayment: string
     copyDetail: string
+    wonBadge: string
+    winnerTicket: string
+    prizeAutoSent: string
   }
   footer: {
     desc: string

@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "dev:mainnet": "NEXT_PUBLIC_ENABLE_TESTNET=false NEXT_PUBLIC_DEFAULT_CHAIN=eth-mainnet next dev",
-    "dev:testnet": "NEXT_PUBLIC_ENABLE_TESTNET=true NEXT_PUBLIC_DEFAULT_CHAIN=sepolia next dev",
+    "dev": "next dev --turbopack",
+    "dev:mainnet": "NEXT_PUBLIC_ENABLE_TESTNET=false NEXT_PUBLIC_DEFAULT_CHAIN=eth-mainnet next dev --turbopack",
+    "dev:testnet": "NEXT_PUBLIC_ENABLE_TESTNET=true NEXT_PUBLIC_DEFAULT_CHAIN=sepolia next dev --turbopack",
     "build": "next build --webpack",
     "build:mainnet": "NEXT_PUBLIC_ENABLE_TESTNET=false NEXT_PUBLIC_DEFAULT_CHAIN=eth-mainnet next build --webpack",
     "build:testnet": "NEXT_PUBLIC_ENABLE_TESTNET=true NEXT_PUBLIC_DEFAULT_CHAIN=sepolia next build --webpack",
