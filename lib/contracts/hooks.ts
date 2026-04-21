@@ -474,6 +474,72 @@ export function useTreasuryContract() {
   }, [readProvider, chainId]);
 }
 
+export interface TreasuryBalanceState {
+  balance: bigint;
+  loading: boolean;
+  checked: boolean;
+  refresh: () => Promise<void>;
+}
+
+/**
+ * Get the connected wallet's available Treasury balance.
+ * This is the withdrawable ledger balance used for refunds, payouts and partner funds.
+ */
+export function useTreasuryBalance(): TreasuryBalanceState {
+  const { address, chainId, status } = useWallet();
+  const treasury = useTreasuryContract();
+  const [balance, setBalance] = useState<bigint>(0n);
+  const [loading, setLoading] = useState(false);
+  const [checked, setChecked] = useState(false);
+  const lastCheckKey = useRef<string | null>(null);
+
+  const treasuryRef = useRef(treasury);
+  treasuryRef.current = treasury;
+
+  const refresh = useCallback(async () => {
+    const currentTreasury = treasuryRef.current;
+    if (!address || !currentTreasury || !chainId) {
+      setBalance(0n);
+      setChecked(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const bal = (await currentTreasury.balances(address)) as bigint;
+      setBalance(bal);
+      setChecked(true);
+      lastCheckKey.current = `${address}-${chainId}`;
+    } catch {
+      setBalance(0n);
+      setChecked(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [address, chainId]);
+
+  useEffect(() => {
+    if (status !== "connected") {
+      setBalance(0n);
+      setChecked(false);
+      lastCheckKey.current = null;
+      return;
+    }
+
+    if (!treasury) {
+      setChecked(false);
+      return;
+    }
+
+    const key = address && chainId ? `${address}-${chainId}` : null;
+    if (key && lastCheckKey.current !== key) {
+      refresh();
+    }
+  }, [address, chainId, refresh, status, treasury]);
+
+  return { balance, loading, checked, refresh };
+}
+
 /**
  * Get partner's deposit balance in Treasury
  */
@@ -603,6 +669,128 @@ export function useDepositToTreasury() {
   );
 
   return { deposit, loading, error };
+}
+
+export function useWithdrawFromTreasury() {
+  const { signer, chainId } = useWallet();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const signerRef = useRef(signer);
+  signerRef.current = signer;
+
+  const withdraw = useCallback(
+    async (
+      amountWei: bigint,
+      callbacks?: TransactionLifecycleCallbacks,
+    ) => {
+      const currentSigner = signerRef.current;
+      if (!currentSigner || !chainId) {
+        setError("Wallet not connected");
+        return null;
+      }
+      if (!hasDeployedContracts(chainId)) {
+        setError("Contracts not deployed on this chain");
+        return null;
+      }
+
+      setLoading(true);
+      setError(null);
+      try {
+        const { treasury } = getAddresses(chainId);
+        const contract = new Contract(treasury, TREASURY_ABI, currentSigner);
+        await contract.withdraw.staticCall(amountWei);
+        callbacks?.onAwaitingSignature?.();
+        const tx = (await contract.withdraw(
+          amountWei,
+        )) as ContractTransactionResponse;
+        callbacks?.onSubmitted?.(tx);
+        await tx.wait();
+        callbacks?.onConfirmed?.(tx);
+        return tx;
+      } catch (err) {
+        callbacks?.onError?.(err);
+        setError(getReadableContractErrorMessage(err, "Withdraw failed"));
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [chainId],
+  );
+
+  return { withdraw, loading, error };
+}
+
+export interface SessionTreasuryInfo {
+  partner: string;
+  isSession: boolean;
+  playerTicketAmount: bigint;
+  partnerDepositAmount: bigint;
+}
+
+export function useSessionTreasuryInfo(
+  treasuryAddress: string | null,
+  sessionAddress: string | null,
+) {
+  const { readProvider } = useRpc();
+  const [info, setInfo] = useState<SessionTreasuryInfo | null>(null);
+  const [loading, setLoading] = useState(false);
+  const lastFetchKey = useRef<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!readProvider || !treasuryAddress || !sessionAddress) {
+      setInfo(null);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const contract = new Contract(treasuryAddress, TREASURY_ABI, readProvider);
+      const [config, balances] = await Promise.all([
+        contract.sessionConfig(sessionAddress) as Promise<{
+          partner: string;
+          isSession: boolean;
+          0: string;
+          1: boolean;
+        }>,
+        contract.sessionBalances(sessionAddress) as Promise<{
+          playerTicketAmount: bigint;
+          partnerDepositAmount: bigint;
+          0: bigint;
+          1: bigint;
+        }>,
+      ]);
+
+      setInfo({
+        partner: String(config.partner ?? config[0] ?? ZeroAddress),
+        isSession: Boolean(config.isSession ?? config[1]),
+        playerTicketAmount: BigInt(
+          balances.playerTicketAmount ?? balances[0] ?? 0n,
+        ),
+        partnerDepositAmount: BigInt(
+          balances.partnerDepositAmount ?? balances[1] ?? 0n,
+        ),
+      });
+      lastFetchKey.current = `${treasuryAddress}-${sessionAddress}`;
+    } catch {
+      setInfo(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [readProvider, sessionAddress, treasuryAddress]);
+
+  useEffect(() => {
+    const key =
+      treasuryAddress && sessionAddress
+        ? `${treasuryAddress}-${sessionAddress}`
+        : null;
+    if (key && lastFetchKey.current !== key) {
+      refresh();
+    }
+  }, [refresh, sessionAddress, treasuryAddress]);
+
+  return { info, loading, refresh };
 }
 
 /**

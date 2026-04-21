@@ -21,6 +21,7 @@ import { useCountdown } from "@/hooks/use-countdown"
 import { BuyModal } from "@/components/buy-modal"
 import { CreatorPanel } from "@/components/creator-panel"
 import { PlayerClaimPanel } from "@/components/player-claim-panel"
+import { SessionTreasuryCard } from "@/components/session-treasury-card"
 
 // ETH to USDT rate for display
 const ETH_USDT_RATE = 2500
@@ -442,6 +443,8 @@ export default function SessionDetailPage() {
             refreshNonce={purchaseHistoryRefreshNonce}
           />
         )}
+
+        {resolvedSession && <SessionTreasuryCard session={resolvedSession} />}
         
         {/* Creator management panel */}
         {resolvedSession && (

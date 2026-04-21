@@ -106,6 +106,8 @@ export interface Dictionary {
     footerTip: string
     usdtBalance: string
     ethBalance: string
+    treasuryBalance: string
+    treasuryCenter: string
     partnerDeposit: string
     partner: string
     createTable: string
@@ -125,6 +127,39 @@ export interface Dictionary {
     insufficientUsdt: string
     insufficientAllowance: string
     noContract: string
+  }
+  treasury: {
+    title: string
+    subtitle: string
+    availableBalance: string
+    availableBalanceDesc: string
+    withdraw: string
+    withdrawing: string
+    withdrawAmount: string
+    withdrawAmountPlaceholder: string
+    withdrawAll: string
+    withdrawSuccess: string
+    withdrawFailed: string
+    refresh: string
+    connectToView: string
+    noBalance: string
+    balanceSourcesTitle: string
+    balanceSourcesDesc: string
+    sourcePartnerDeposit: string
+    sourcePrizePayout: string
+    sourceRefundCompensation: string
+    sourceUnlockedDeposit: string
+    sessionFunds: string
+    sessionFundsDesc: string
+    ticketPool: string
+    lockedPartnerDeposit: string
+    boundPartner: string
+    registeredSession: string
+    emergencyStatus: string
+    emergencyStatusDesc: string
+    onlyAdminProject: string
+    yes: string
+    no: string
   }
   tx: {
     confirmTitle: string
@@ -252,6 +287,7 @@ export interface Dictionary {
     revealing: string
     revealSuccess: string
     revealWindowEnded: string
+    revealExpired: string
     revealReadyEarly: string
     revealSecretRequired: string
     legacyCommitmentDetected: string
@@ -275,6 +311,7 @@ export interface Dictionary {
     creatorAbsentSettlementDesc: string
     revealNotEnded: string
     finalizeCreatorAbsent: string
+    adminOnlyCreatorAbsent: string
     creatorAbsentFinalizeSuccess: string
     claimCreatorAbsentDesc: string
     // Player claim

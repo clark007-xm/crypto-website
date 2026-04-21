@@ -438,6 +438,8 @@ export function CreatorPanel({
                   <Loader2 className="h-4 w-4 animate-spin" />
                   {t.session.revealing}
                 </>
+              ) : revealEnded && !session.isSettled ? (
+                t.session.revealExpired
               ) : (
                 t.session.revealNow
               )}
@@ -475,6 +477,12 @@ export function CreatorPanel({
               <div className="alert alert-warning py-2">
                 <AlertTriangle className="h-4 w-4" />
                 <span className="text-sm">{t.session.revealNotEnded}</span>
+              </div>
+            )}
+            {revealEnded && !isAdmin && !session.isSettled && (
+              <div className="alert alert-warning py-2">
+                <AlertTriangle className="h-4 w-4" />
+                <span className="text-sm">{t.session.adminOnlyCreatorAbsent}</span>
               </div>
             )}
             {(creatorAbsentSuccess || isCreatorAbsentSettled) && (

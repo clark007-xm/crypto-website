@@ -2,11 +2,11 @@
 
 import { useState } from "react"
 import dynamic from "next/dynamic"
-import { Wallet, LogOut, Copy, ExternalLink, Check, RefreshCw, PlusCircle, AlertTriangle, Ticket } from "lucide-react"
+import { Wallet, LogOut, Copy, ExternalLink, Check, RefreshCw, PlusCircle, AlertTriangle, Ticket, WalletCards } from "lucide-react"
 import Link from "next/link"
 import { useWallet } from "@/lib/wallet/context"
 import { useT } from "@/lib/i18n/context"
-import { useIsPartner, usePartnerDeposit } from "@/lib/contracts/hooks"
+import { useIsPartner, useTreasuryBalance } from "@/lib/contracts/hooks"
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
 import { useRpc } from "@/lib/rpc/context"
 import { CHAINS, getChainByNumericId } from "@/lib/rpc/nodes"
@@ -24,7 +24,11 @@ export function WalletButton() {
   const [copied, setCopied] = useState(false)
   const [switching, setSwitching] = useState(false)
   const { isPartner, loading: partnerLoading, checked: partnerChecked } = useIsPartner()
-  const { balance: depositBalance, loading: depositLoading, refresh: refreshDeposit } = usePartnerDeposit()
+  const {
+    balance: treasuryBalance,
+    loading: treasuryLoading,
+    refresh: refreshTreasuryBalance,
+  } = useTreasuryBalance()
 
   const selectedChainId = CHAINS[chain].numericId
   const connectedChain = getChainByNumericId(chainId)
@@ -44,9 +48,8 @@ export function WalletButton() {
     setTimeout(() => setCopied(false), 1500)
   }
 
-  /* Format deposit balance for display (ETH) */
-  const formattedDeposit = depositBalance
-    ? Number(formatEther(depositBalance)).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+  const formattedTreasuryBalance = treasuryBalance
+    ? Number(formatEther(treasuryBalance)).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })
     : "0.0000"
 
   /* ---- Disconnected state ---- */
@@ -150,25 +153,22 @@ export function WalletButton() {
             <span className="text-xs text-base-content/40 ml-1 font-normal">ETH</span>
           </p>
           
-          {/* Partner Deposit (only for partners) */}
-          {partnerChecked && isPartner && (
-            <div className="mt-3 pt-3 border-t border-base-content/5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-base-content/40">{t.wallet.partnerDeposit}</span>
-                <button
-                  className="btn btn-ghost btn-xs btn-circle"
-                  onClick={refreshDeposit}
-                  disabled={depositLoading}
-                >
-                  <RefreshCw className={`h-3 w-3 ${depositLoading ? "animate-spin" : ""}`} />
-                </button>
-              </div>
-              <p className="text-sm font-semibold text-secondary font-display mt-0.5">
-                {depositLoading ? "..." : formattedDeposit}
-                <span className="text-xs text-base-content/40 ml-1 font-normal">ETH</span>
-              </p>
+          <div className="mt-3 pt-3 border-t border-base-content/5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-base-content/40">{t.wallet.treasuryBalance}</span>
+              <button
+                className="btn btn-ghost btn-xs btn-circle"
+                onClick={refreshTreasuryBalance}
+                disabled={treasuryLoading}
+              >
+                <RefreshCw className={`h-3 w-3 ${treasuryLoading ? "animate-spin" : ""}`} />
+              </button>
             </div>
-          )}
+            <p className="text-sm font-semibold text-secondary font-display mt-0.5">
+              {treasuryLoading ? "..." : formattedTreasuryBalance}
+              <span className="text-xs text-base-content/40 ml-1 font-normal">ETH</span>
+            </p>
+          </div>
         </div>
 
         {/* Actions */}
@@ -189,6 +189,13 @@ export function WalletButton() {
           >
             <Ticket className="h-4 w-4" />
             {t.footer.myBets}
+          </Link>
+          <Link
+            href="/treasury"
+            className="btn btn-ghost btn-sm justify-start w-full gap-3 font-normal"
+          >
+            <WalletCards className="h-4 w-4" />
+            {t.wallet.treasuryCenter}
           </Link>
           <button
             className="btn btn-ghost btn-sm justify-start w-full gap-3 font-normal"

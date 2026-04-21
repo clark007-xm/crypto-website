@@ -28,3 +28,24 @@ html {
     border-color: rgba(226, 232, 240, 0.1);
   }
 }
+
+@keyframes tx-progress-stripes {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 56px 0;
+  }
+}
+
+.tx-progress-stripes {
+  animation: tx-progress-stripes 0.9s linear infinite;
+  background-image: repeating-linear-gradient(
+    115deg,
+    rgba(255, 255, 255, 0.28) 0,
+    rgba(255, 255, 255, 0.28) 12px,
+    transparent 12px,
+    transparent 24px
+  );
+  background-size: 56px 100%;
+}

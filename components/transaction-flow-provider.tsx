@@ -183,6 +183,8 @@ export function TransactionFlowProvider({ children }: { children: ReactNode }) {
       : state?.stage === "error"
         ? "bg-error"
         : "bg-primary"
+  const isWaitingWallet = state?.stage === "awaiting"
+  const isWaitingConfirmation = state?.stage === "submitted"
 
   const title =
     state?.stage === "awaiting"
@@ -217,6 +219,7 @@ export function TransactionFlowProvider({ children }: { children: ReactNode }) {
       : state?.stage === "error"
         ? "text-error bg-error/10"
         : "text-primary bg-primary/10"
+  const iconMotion = isWaitingWallet || isWaitingConfirmation ? "animate-pulse" : ""
 
   return (
     <TransactionFlowContext.Provider value={value}>
@@ -241,8 +244,16 @@ export function TransactionFlowProvider({ children }: { children: ReactNode }) {
               <div className="overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4 sm:px-8 md:pb-8">
                 <div className="text-center">
                   <h3 className="text-2xl font-bold sm:text-4xl">{title}</h3>
-                  <div className={`mx-auto mt-6 flex h-20 w-20 items-center justify-center rounded-3xl ${iconTone}`}>
+                  <div className={`relative mx-auto mt-6 flex h-20 w-20 items-center justify-center rounded-3xl ${iconTone} ${iconMotion}`}>
+                    {isWaitingConfirmation && (
+                      <span className="absolute inset-0 rounded-3xl border border-primary/30 animate-ping" />
+                    )}
                     <Icon className="h-10 w-10" />
+                    {isWaitingConfirmation && (
+                      <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-base-100 shadow-lg">
+                        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      </span>
+                    )}
                   </div>
                   <p className="mx-auto mt-5 max-w-md text-sm leading-relaxed text-base-content/70 sm:text-base">
                     {description}
@@ -251,9 +262,12 @@ export function TransactionFlowProvider({ children }: { children: ReactNode }) {
 
                 <div className="mt-6 rounded-full bg-base-200 p-1">
                   <div
-                    className={`h-12 rounded-full ${progressTone} transition-all duration-300`}
+                    className={`relative h-12 overflow-hidden rounded-full ${progressTone} transition-all duration-300`}
                     style={{ width: progressWidth }}
                   >
+                    {isWaitingConfirmation && (
+                      <div className="tx-progress-stripes absolute inset-0 opacity-45" />
+                    )}
                     <div className="flex h-full items-center justify-between px-5 text-sm font-semibold text-primary-content">
                       <span>
                         {state.stage === "awaiting"
@@ -264,7 +278,9 @@ export function TransactionFlowProvider({ children }: { children: ReactNode }) {
                               ? t.tx.progressSuccess
                               : t.tx.progressError}
                       </span>
-                      {state.stage === "awaiting" && <Loader2 className="h-5 w-5 animate-spin" />}
+                      {(isWaitingWallet || isWaitingConfirmation) && (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      )}
                     </div>
                   </div>
                 </div>
