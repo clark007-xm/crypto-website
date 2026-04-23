@@ -143,6 +143,16 @@ export interface Dictionary {
     refresh: string
     connectToView: string
     noBalance: string
+    partnerManagement: string
+    partnerManagementDesc: string
+    partnerOnly: string
+    availablePartnerDeposit: string
+    requiredPartnerDeposit: string
+    depositTopUp: string
+    depositAmount: string
+    depositAmountPlaceholder: string
+    depositSuccess: string
+    depositFailed: string
     balanceSourcesTitle: string
     balanceSourcesDesc: string
     sourcePartnerDeposit: string
@@ -158,6 +168,24 @@ export interface Dictionary {
     emergencyStatus: string
     emergencyStatusDesc: string
     onlyAdminProject: string
+    activityTitle: string
+    activityDesc: string
+    sessionActivityTitle: string
+    sessionActivityDesc: string
+    noActivity: string
+    txHash: string
+    eventBalanceUpdated: string
+    eventPartnerDepositUpdated: string
+    eventWithdraw: string
+    eventSessionRegistered: string
+    eventPlayerPayTicket: string
+    eventSessionTicketBalanceUpdated: string
+    eventSessionDepositBalanceUpdated: string
+    eventDistributeFunds: string
+    eventPartnerDepositLocked: string
+    eventPartnerDepositUnlocked: string
+    eventPartnerDepositSlashed: string
+    eventEmergencyPartnerDepositUnlocked: string
     yes: string
     no: string
   }

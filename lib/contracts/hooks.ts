@@ -8,7 +8,7 @@ import {
   formatUnits,
   parseUnits,
 } from "ethers";
-import type { ContractTransactionResponse } from "ethers";
+import type { ContractTransactionResponse, Log } from "ethers";
 import { useWallet } from "@/lib/wallet/context";
 import { useRpc } from "@/lib/rpc/context";
 import { CHAINS } from "@/lib/rpc/nodes";
@@ -1788,10 +1788,17 @@ async function querySessionWinnerSelection(
   currentSession: Contract,
   winnerAddress?: string | null,
 ) {
-  const filter = winnerAddress
-    ? currentSession.filters.WinnerSelected(winnerAddress)
-    : currentSession.filters.WinnerSelected();
-  const events = await currentSession.queryFilter(filter);
+  let events: Awaited<ReturnType<Contract["queryFilter"]>>;
+  try {
+    const filter = winnerAddress
+      ? currentSession.filters.WinnerSelected(winnerAddress)
+      : currentSession.filters.WinnerSelected();
+    events = await currentSession.queryFilter(filter);
+  } catch {
+    // Public RPCs may reject broad historical log queries. Missing winner logs
+    // should not make an otherwise readable settled session look "not found".
+    return null;
+  }
 
   const winnerEvents = events
     .map((event) => {
@@ -2081,6 +2088,308 @@ function parseWinnerSelectionLogs(
   });
 
   return winnerSelections;
+}
+
+export type TreasuryActivityKind =
+  | "balance-updated"
+  | "partner-deposit-updated"
+  | "withdraw"
+  | "session-registered"
+  | "player-pay-ticket"
+  | "session-ticket-balance-updated"
+  | "session-deposit-balance-updated"
+  | "distribute-funds"
+  | "partner-deposit-locked"
+  | "partner-deposit-unlocked"
+  | "partner-deposit-slashed"
+  | "emergency-partner-deposit-unlocked";
+
+export type TreasuryActivityTone = "in" | "out" | "neutral" | "warning";
+
+export interface TreasuryActivityRecord {
+  chainId: number;
+  kind: TreasuryActivityKind;
+  tone: TreasuryActivityTone;
+  transactionHash: string;
+  blockNumber: number;
+  blockTimestamp: number;
+  logIndex: number;
+  amount: bigint | null;
+  user: string | null;
+  partner: string | null;
+  session: string | null;
+  recipient: string | null;
+}
+
+interface UseTreasuryActivityOptions {
+  enabled?: boolean;
+  sessionAddress?: string | null;
+  userAddress?: string | null;
+  limit?: number;
+}
+
+function getTreasuryEventKind(eventName: string): TreasuryActivityKind | null {
+  switch (eventName) {
+    case "BalanceUpdated":
+      return "balance-updated";
+    case "PartnerDepositUpdated":
+      return "partner-deposit-updated";
+    case "Withdraw":
+      return "withdraw";
+    case "SessionRegistered":
+      return "session-registered";
+    case "PlayerPayTicketIn":
+      return "player-pay-ticket";
+    case "SessionTicketBalanceUpdated":
+      return "session-ticket-balance-updated";
+    case "SessionDepositBalanceUpdated":
+      return "session-deposit-balance-updated";
+    case "DistributeFunds":
+      return "distribute-funds";
+    case "PartnerDepositLocked":
+      return "partner-deposit-locked";
+    case "PartnerDepositUnlocked":
+      return "partner-deposit-unlocked";
+    case "PartnerDepositSlashed":
+      return "partner-deposit-slashed";
+    case "EmergencyPartnerDepositUnlocked":
+      return "emergency-partner-deposit-unlocked";
+    default:
+      return null;
+  }
+}
+
+function getTreasuryActivityTone(kind: TreasuryActivityKind): TreasuryActivityTone {
+  switch (kind) {
+    case "withdraw":
+    case "player-pay-ticket":
+    case "partner-deposit-locked":
+      return "out";
+    case "partner-deposit-slashed":
+    case "emergency-partner-deposit-unlocked":
+      return "warning";
+    case "partner-deposit-updated":
+    case "distribute-funds":
+    case "partner-deposit-unlocked":
+      return "in";
+    default:
+      return "neutral";
+  }
+}
+
+function parseTreasuryActivityEvent(
+  contract: Contract,
+  event: Log,
+  chainId: number,
+  blockTimestampMap: Map<number, number>,
+): TreasuryActivityRecord | null {
+  try {
+    const parsed = contract.interface.parseLog(event);
+    if (!parsed) return null;
+
+    const kind = getTreasuryEventKind(parsed.name);
+    if (!kind) return null;
+
+    const getAddressArg = (name: string, index: number) => {
+      const value = parsed.args?.[name] ?? parsed.args?.[index];
+      return typeof value === "string" ? value : null;
+    };
+    const getBigIntArg = (name: string, index: number) => {
+      const value = parsed.args?.[name] ?? parsed.args?.[index];
+      if (value == null) return null;
+      return BigInt(value as bigint | number | string);
+    };
+
+    const amount =
+      getBigIntArg("amount", 2) ??
+      getBigIntArg("newBalance", 1) ??
+      getBigIntArg("playerTicketAmount", 1) ??
+      getBigIntArg("partnerDepositAmount", 1);
+
+    return {
+      chainId,
+      kind,
+      tone: getTreasuryActivityTone(kind),
+      transactionHash: event.transactionHash,
+      blockNumber: event.blockNumber,
+      blockTimestamp: blockTimestampMap.get(event.blockNumber) ?? 0,
+      logIndex: Number(
+        (event as { logIndex?: number; index?: number }).logIndex ??
+          (event as { index?: number }).index ??
+          0,
+      ),
+      amount,
+      user:
+        getAddressArg("user", 1) ??
+        getAddressArg("player", 1) ??
+        getAddressArg("partner", 1),
+      partner: getAddressArg("partner", 1),
+      session: getAddressArg("session", 0),
+      recipient: getAddressArg("recipient", 3),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function queryTreasuryEvents(
+  provider: { getLogs: (filter: { address: string; fromBlock: number; toBlock: number }) => Promise<Log[]> },
+  address: string,
+  fromBlock: number,
+  toBlock: number,
+) {
+  const events: Log[] = [];
+  const maxBlocksPerQuery = 9000;
+  let currentFromBlock = fromBlock;
+
+  while (currentFromBlock <= toBlock) {
+    const currentToBlock = Math.min(
+      currentFromBlock + maxBlocksPerQuery - 1,
+      toBlock,
+    );
+    const batchEvents = await provider.getLogs({
+      address,
+      fromBlock: currentFromBlock,
+      toBlock: currentToBlock,
+    });
+    events.push(...batchEvents);
+    currentFromBlock = currentToBlock + 1;
+  }
+
+  return events;
+}
+
+function isSameAddress(left: string | null | undefined, right: string | null | undefined) {
+  return Boolean(left && right && left.toLowerCase() === right.toLowerCase());
+}
+
+function matchesTreasuryActivityRecord(
+  record: TreasuryActivityRecord,
+  options: {
+    sessionAddress?: string | null;
+    userAddress?: string | null;
+  },
+) {
+  const { sessionAddress, userAddress } = options;
+
+  if (sessionAddress) {
+    return isSameAddress(record.session, sessionAddress);
+  }
+
+  if (!userAddress) return false;
+
+  return (
+    isSameAddress(record.user, userAddress) ||
+    isSameAddress(record.partner, userAddress) ||
+    isSameAddress(record.recipient, userAddress)
+  );
+}
+
+export function useTreasuryActivity({
+  enabled = true,
+  sessionAddress = null,
+  userAddress = null,
+  limit = 20,
+}: UseTreasuryActivityOptions = {}) {
+  const { address, chainId: walletChainId, status } = useWallet();
+  const { readProvider, chain } = useRpc();
+  const [records, setRecords] = useState<TreasuryActivityRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const lastFetchKey = useRef<string | null>(null);
+
+  const activeChainId =
+    walletChainId && hasDeployedContracts(walletChainId)
+      ? walletChainId
+      : CHAINS[chain].numericId;
+  const targetUserAddress = userAddress ?? address;
+
+  const refresh = useCallback(async () => {
+    if (!enabled || !readProvider || !hasDeployedContracts(activeChainId)) {
+      setRecords([]);
+      return;
+    }
+    if (!sessionAddress && !targetUserAddress) {
+      setRecords([]);
+      return;
+    }
+    if (!sessionAddress && status !== "connected") {
+      setRecords([]);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { treasury, deployBlock } = getAddresses(activeChainId);
+      const contract = new Contract(treasury, TREASURY_ABI, readProvider);
+      const currentBlock = await readProvider.getBlockNumber();
+      const fromBlock = Math.max(
+        deployBlock,
+        currentBlock - getMaxBlockRange(),
+      );
+      const events = await queryTreasuryEvents(
+        readProvider,
+        treasury,
+        fromBlock,
+        currentBlock,
+      );
+      const uniqueBlockNumbers = [
+        ...new Set(
+          events
+            .map((event) => event.blockNumber)
+            .filter((value): value is number => typeof value === "number"),
+        ),
+      ];
+      const blockTimestampMap = await loadBlockTimestampMap(
+        readProvider,
+        uniqueBlockNumbers,
+      );
+      const nextRecords = events
+        .map((event) =>
+          parseTreasuryActivityEvent(
+            contract,
+            event,
+            activeChainId,
+            blockTimestampMap,
+          ),
+        )
+        .filter((record): record is TreasuryActivityRecord => Boolean(record))
+        .filter((record) =>
+          matchesTreasuryActivityRecord(record, {
+            sessionAddress,
+            userAddress: targetUserAddress,
+          }),
+        )
+        .sort((a, b) => {
+          if (b.blockNumber !== a.blockNumber) return b.blockNumber - a.blockNumber;
+          return b.logIndex - a.logIndex;
+        })
+        .slice(0, limit);
+
+      setRecords(nextRecords);
+      lastFetchKey.current = `${activeChainId}-${sessionAddress ?? ""}-${targetUserAddress ?? ""}-${limit}`;
+    } catch {
+      setRecords([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    activeChainId,
+    enabled,
+    limit,
+    readProvider,
+    sessionAddress,
+    status,
+    targetUserAddress,
+  ]);
+
+  useEffect(() => {
+    const key = `${activeChainId}-${sessionAddress ?? ""}-${targetUserAddress ?? ""}-${limit}`;
+    if (enabled && key !== lastFetchKey.current) {
+      void refresh();
+    }
+  }, [activeChainId, enabled, limit, refresh, sessionAddress, targetUserAddress]);
+
+  return { records, loading, refresh };
 }
 
 function parseSessionPurchaseEvents(

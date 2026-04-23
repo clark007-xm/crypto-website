@@ -160,11 +160,17 @@ export const TREASURY_ABI = [
   "function distributeFundsBatch(address[] calldata users, uint256[] calldata amounts) external",
   
   // Events
+  "event BalanceUpdated(address indexed user, uint256 newBalance)",
   "event PartnerDepositUpdated(address indexed partner, uint256 amount)",
   "event Withdraw(address indexed user, uint256 amount)",
+  "event SessionRegistered(address indexed session)",
+  "event PlayerPayTicketIn(address indexed session, address indexed player, uint256 amount)",
+  "event SessionTicketBalanceUpdated(address indexed session, uint256 playerTicketAmount)",
+  "event SessionDepositBalanceUpdated(address indexed session, uint256 partnerDepositAmount)",
   "event PartnerDepositLocked(address indexed session, address indexed partner, uint256 amount)",
   "event PartnerDepositUnlocked(address indexed session, address indexed partner, uint256 amount)",
   "event PartnerDepositSlashed(address indexed session, address indexed partner, uint256 amount, address recipient)",
+  "event EmergencyPartnerDepositUnlocked(address indexed session, address indexed partner, uint256 amount)",
   "event DistributeFunds(address indexed session, address indexed user, uint256 amount)",
 ] as const
 

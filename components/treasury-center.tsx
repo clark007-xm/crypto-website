@@ -1,11 +1,19 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { AlertTriangle, CheckCircle, RefreshCw, Wallet } from "lucide-react"
+import { AlertTriangle, CheckCircle, RefreshCw, ShieldAlert, Wallet } from "lucide-react"
 import { formatEther, parseEther } from "ethers"
 import { useTransactionFlow } from "@/components/transaction-flow-provider"
+import { TreasuryActivityList } from "@/components/treasury-activity-list"
 import { useT } from "@/lib/i18n/context"
-import { useTreasuryBalance, useWithdrawFromTreasury } from "@/lib/contracts/hooks"
+import {
+  useDepositToTreasury,
+  useIsPartner,
+  usePartnerDeposit,
+  useTreasuryActivity,
+  useTreasuryBalance,
+  useWithdrawFromTreasury,
+} from "@/lib/contracts/hooks"
 import { useWallet } from "@/lib/wallet/context"
 
 function formatEth(value: bigint) {
@@ -21,8 +29,23 @@ export function TreasuryCenter() {
   const transactionFlow = useTransactionFlow()
   const { balance, loading, checked, refresh } = useTreasuryBalance()
   const { withdraw, loading: withdrawing, error } = useWithdrawFromTreasury()
+  const { isPartner, loading: partnerLoading, checked: partnerChecked } = useIsPartner()
+  const {
+    balance: partnerDepositBalance,
+    requiredDeposit,
+    loading: partnerDepositLoading,
+    refresh: refreshPartnerDeposit,
+  } = usePartnerDeposit()
+  const { deposit, loading: depositing, error: depositError } = useDepositToTreasury()
+  const {
+    records: activityRecords,
+    loading: activityLoading,
+    refresh: refreshActivity,
+  } = useTreasuryActivity({ enabled: status === "connected", limit: 24 })
   const [amount, setAmount] = useState("")
+  const [depositAmount, setDepositAmount] = useState("")
   const [success, setSuccess] = useState(false)
+  const [depositSuccess, setDepositSuccess] = useState(false)
 
   const parsedAmount = useMemo(() => {
     try {
@@ -31,6 +54,13 @@ export function TreasuryCenter() {
       return null
     }
   }, [amount])
+  const parsedDepositAmount = useMemo(() => {
+    try {
+      return depositAmount.trim() ? parseEther(depositAmount.trim()) : 0n
+    } catch {
+      return null
+    }
+  }, [depositAmount])
 
   const canWithdraw =
     status === "connected" &&
@@ -38,6 +68,13 @@ export function TreasuryCenter() {
     parsedAmount > 0n &&
     parsedAmount <= balance &&
     !withdrawing
+  const canDeposit =
+    status === "connected" &&
+    partnerChecked &&
+    isPartner &&
+    parsedDepositAmount !== null &&
+    parsedDepositAmount > 0n &&
+    !depositing
 
   const handleWithdraw = async () => {
     if (!canWithdraw || parsedAmount === null) return
@@ -59,12 +96,37 @@ export function TreasuryCenter() {
       setSuccess(true)
       setAmount("")
       await refresh()
+      await refreshActivity()
+    }
+  }
+
+  const handleDeposit = async () => {
+    if (!canDeposit || parsedDepositAmount === null) return
+
+    setDepositSuccess(false)
+    const ok = await deposit(
+      parsedDepositAmount,
+      transactionFlow.createController({
+        chainId,
+        fields: [
+          { label: t.tx.account, value: shortAddress ?? address ?? "-", tone: "success" },
+          { label: t.tx.action, value: t.treasury.depositTopUp },
+          { label: t.tx.details, value: `${depositAmount} ETH` },
+        ],
+      }).callbacks,
+    )
+
+    if (ok) {
+      setDepositSuccess(true)
+      setDepositAmount("")
+      await Promise.all([refresh(), refreshPartnerDeposit(), refreshActivity()])
     }
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-      <section className="card border border-base-content/5 bg-base-200">
+    <div className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+        <section className="card border border-base-content/5 bg-base-200">
         <div className="card-body gap-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-center gap-3">
@@ -166,29 +228,119 @@ export function TreasuryCenter() {
             </>
           )}
         </div>
-      </section>
+        </section>
 
-      <aside className="card border border-base-content/5 bg-base-200">
-        <div className="card-body gap-4">
-          <h2 className="text-lg font-bold">{t.treasury.balanceSourcesTitle}</h2>
-          <p className="text-sm text-base-content/60">{t.treasury.balanceSourcesDesc}</p>
-          <div className="space-y-3">
-            {[
-              t.treasury.sourcePartnerDeposit,
-              t.treasury.sourcePrizePayout,
-              t.treasury.sourceRefundCompensation,
-              t.treasury.sourceUnlockedDeposit,
-            ].map((item) => (
-              <div
-                key={item}
-                className="rounded-2xl border border-base-content/5 bg-base-100/70 px-4 py-3 text-sm text-base-content/75"
-              >
-                {item}
+        <div className="space-y-6">
+          <aside className="card border border-base-content/5 bg-base-200">
+            <div className="card-body gap-4">
+              <h2 className="text-lg font-bold">{t.treasury.partnerManagement}</h2>
+              <p className="text-sm text-base-content/60">{t.treasury.partnerManagementDesc}</p>
+
+              {status !== "connected" ? (
+                <div className="alert alert-info py-3">
+                  <span className="text-sm">{t.treasury.connectToView}</span>
+                </div>
+              ) : partnerLoading ? (
+                <div className="h-24 animate-pulse rounded-2xl bg-base-300/70" />
+              ) : !partnerChecked || !isPartner ? (
+                <div className="alert border border-warning/15 bg-warning/5 py-3 text-base-content">
+                  <ShieldAlert className="h-4 w-4 text-warning" />
+                  <span className="text-sm">{t.treasury.partnerOnly}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                    <div className="rounded-2xl border border-base-content/5 bg-base-100/70 p-4">
+                      <p className="text-xs text-base-content/45">
+                        {t.treasury.availablePartnerDeposit}
+                      </p>
+                      <p className="mt-1 font-display text-xl font-bold text-secondary">
+                        {partnerDepositLoading ? "..." : formatEth(partnerDepositBalance)} ETH
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-base-content/5 bg-base-100/70 p-4">
+                      <p className="text-xs text-base-content/45">
+                        {t.treasury.requiredPartnerDeposit}
+                      </p>
+                      <p className="mt-1 font-display text-xl font-bold">
+                        {formatEth(requiredDeposit)} ETH
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="form-control gap-2">
+                    <span className="label-text font-semibold">{t.treasury.depositAmount}</span>
+                    <input
+                      className="input input-bordered"
+                      inputMode="decimal"
+                      placeholder={t.treasury.depositAmountPlaceholder}
+                      value={depositAmount}
+                      onChange={(event) => {
+                        setDepositAmount(event.target.value)
+                        setDepositSuccess(false)
+                      }}
+                    />
+                  </label>
+
+                  {depositError && (
+                    <div className="alert alert-error py-3">
+                      <AlertTriangle className="h-4 w-4" />
+                      <span className="text-sm">{depositError}</span>
+                    </div>
+                  )}
+                  {depositSuccess && (
+                    <div className="alert alert-success py-3">
+                      <CheckCircle className="h-4 w-4" />
+                      <span className="text-sm">{t.treasury.depositSuccess}</span>
+                    </div>
+                  )}
+
+                  <button
+                    className="btn btn-secondary w-full gap-2"
+                    onClick={() => void handleDeposit()}
+                    disabled={!canDeposit}
+                  >
+                    {depositing && <span className="loading loading-spinner loading-sm" />}
+                    {depositing ? t.create.depositing : t.treasury.depositTopUp}
+                  </button>
+                </>
+              )}
+            </div>
+          </aside>
+
+          <aside className="card border border-base-content/5 bg-base-200">
+            <div className="card-body gap-4">
+              <h2 className="text-lg font-bold">{t.treasury.balanceSourcesTitle}</h2>
+              <p className="text-sm text-base-content/60">{t.treasury.balanceSourcesDesc}</p>
+              <div className="space-y-3">
+                {[
+                  t.treasury.sourcePartnerDeposit,
+                  t.treasury.sourcePrizePayout,
+                  t.treasury.sourceRefundCompensation,
+                  t.treasury.sourceUnlockedDeposit,
+                ].map((item) => (
+                  <div
+                    key={item}
+                    className="rounded-2xl border border-base-content/5 bg-base-100/70 px-4 py-3 text-sm text-base-content/75"
+                  >
+                    {item}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+          </aside>
         </div>
-      </aside>
+      </div>
+
+      {status === "connected" && (
+        <TreasuryActivityList
+          title={t.treasury.activityTitle}
+          description={t.treasury.activityDesc}
+          records={activityRecords}
+          loading={activityLoading}
+          onRefresh={() => void refreshActivity()}
+        />
+      )}
     </div>
   )
 }
