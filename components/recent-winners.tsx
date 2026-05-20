@@ -2,25 +2,38 @@
 
 import { ExternalLink, Trophy } from "lucide-react"
 import { useT } from "@/lib/i18n/context"
+import { getExplorerTxUrl } from "@/lib/contracts/addresses"
+import { useRecentWinners } from "@/lib/contracts/hooks"
+import { getProductInfoLabel } from "@/lib/product-info"
+import { formatTokenAmount, getPaymentTokenSymbol } from "@/lib/token-format"
 
-type LabelKey = "hardwareWallet" | "usdtRedPacket" | null
+function shortAddress(address: string) {
+  return `${address.slice(0, 6)}...${address.slice(-4)}`
+}
 
-const winners: { address: string; prize: string; label: string; labelKey: LabelKey; period: string; timeHours: number; txHash: string }[] = [
-  { address: "0x7a3d...8f2e", prize: "0.1 BTC", label: "Bitcoin", labelKey: null, period: "#3120", timeHours: 2, txHash: "#" },
-  { address: "0x9c1b...4d7a", prize: "2 ETH", label: "Ethereum", labelKey: null, period: "#3119", timeHours: 5, txHash: "#" },
-  { address: "0x2e8f...1c3b", prize: "50 SOL", label: "Solana", labelKey: null, period: "#3118", timeHours: 8, txHash: "#" },
-  { address: "0x5d4a...9e6f", prize: "Ledger Nano X", label: "", labelKey: "hardwareWallet", period: "#3117", timeHours: 12, txHash: "#" },
-  { address: "0x1f7c...3a8d", prize: "500 USDT", label: "", labelKey: "usdtRedPacket", period: "#3116", timeHours: 24, txHash: "#" },
-]
+function formatPrize(
+  ticketPrice: bigint,
+  totalTickets: bigint,
+  decimals: number,
+  symbol: string
+) {
+  return formatTokenAmount(ticketPrice * totalTickets, decimals, symbol)
+}
 
 export function RecentWinners() {
   const t = useT()
+  const { records, loading } = useRecentWinners(5)
 
-  const formatTime = (hours: number) => {
-    if (hours >= 24) {
-      return t.winners.daysAgo.replace("{n}", String(Math.floor(hours / 24)))
+  const formatTime = (blockTimestamp: number, blockNumber: number) => {
+    if (!blockTimestamp) return `#${blockNumber}`
+    const elapsedHours = Math.max(
+      0,
+      Math.floor((Date.now() - blockTimestamp * 1000) / (60 * 60 * 1000))
+    )
+    if (elapsedHours >= 24) {
+      return t.winners.daysAgo.replace("{n}", String(Math.floor(elapsedHours / 24)))
     }
-    return t.winners.hoursAgo.replace("{n}", String(hours))
+    return t.winners.hoursAgo.replace("{n}", String(elapsedHours))
   }
 
   return (
@@ -46,39 +59,76 @@ export function RecentWinners() {
                 </tr>
               </thead>
               <tbody>
-                {winners.map((w, i) => (
-                  <tr key={i} className="hover:bg-base-300/50 border-base-content/5">
-                    <td>
-                      <div className="flex items-center gap-3">
-                        <div className="avatar placeholder">
-                          <div className="bg-primary/10 text-primary rounded-full w-8 h-8">
-                            <span className="text-xs font-bold">
-                              {w.address.slice(2, 4).toUpperCase()}
-                            </span>
-                          </div>
-                        </div>
-                        <span className="font-mono text-sm text-base-content/70">{w.address}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div>
-                        <span className="font-bold text-sm">{w.prize}</span>
-                        <br />
-                        <span className="text-xs text-base-content/40">
-                          {w.labelKey ? t.winners[w.labelKey] : w.label}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="text-base-content/60 text-sm font-mono">{w.period}</td>
-                    <td className="text-base-content/40 text-sm">{formatTime(w.timeHours)}</td>
-                    <td>
-                      <a href={w.txHash} className="btn btn-ghost btn-xs gap-1 text-primary hover:text-primary">
-                        <ExternalLink className="h-3 w-3" />
-                        {t.winners.verify}
-                      </a>
+                {loading && records.length === 0 && (
+                  <tr className="border-base-content/5">
+                    <td colSpan={5} className="py-8 text-center text-base-content/40">
+                      {t.products.loading}
                     </td>
                   </tr>
-                ))}
+                )}
+                {!loading && records.length === 0 && (
+                  <tr className="border-base-content/5">
+                    <td colSpan={5} className="py-8 text-center text-base-content/40">
+                      {t.winners.noRecords}
+                    </td>
+                  </tr>
+                )}
+                {records.map((winner) => {
+                  const tokenSymbol = getPaymentTokenSymbol(
+                    winner.session.paymentToken,
+                    winner.session.paymentTokenSymbol
+                  )
+                  const prize = formatPrize(
+                    winner.session.ticketPrice,
+                    winner.session.totalTickets,
+                    winner.session.paymentTokenDecimals,
+                    tokenSymbol
+                  )
+                  const productLabel = getProductInfoLabel(winner.session.productInfoId)
+
+                  return (
+                    <tr key={`${winner.transactionHash}-${winner.logIndex}`} className="hover:bg-base-300/50 border-base-content/5">
+                      <td>
+                        <div className="flex items-center gap-3">
+                          <div className="avatar placeholder">
+                            <div className="bg-primary/10 text-primary rounded-full w-8 h-8">
+                              <span className="text-xs font-bold">
+                                {winner.winner.slice(2, 4).toUpperCase()}
+                              </span>
+                            </div>
+                          </div>
+                          <span className="font-mono text-sm text-base-content/70">{shortAddress(winner.winner)}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div>
+                          <span className="font-bold text-sm">{prize}</span>
+                          <br />
+                          <span className="text-xs text-base-content/40">
+                            {productLabel}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="text-base-content/60 text-sm font-mono">
+                        {shortAddress(winner.session.sessionAddress)}
+                      </td>
+                      <td className="text-base-content/40 text-sm">
+                        {formatTime(winner.blockTimestamp, winner.blockNumber)}
+                      </td>
+                      <td>
+                        <a
+                          href={getExplorerTxUrl(winner.session.chainId, winner.transactionHash)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-ghost btn-xs gap-1 text-primary hover:text-primary"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          {t.winners.verify}
+                        </a>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

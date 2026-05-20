@@ -10,7 +10,8 @@ import { getSessionPhaseState, type SessionConfigFromEvent } from "@/lib/contrac
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
 import { loadLocalSessionProductInfo } from "@/lib/local-session-product-info"
 import { getProductInfoLabel, getProductInfoShortLabel } from "@/lib/product-info"
-import { formatEther, ZeroAddress } from "ethers"
+import { ZeroAddress } from "ethers"
+import { formatTokenAmount, getPaymentTokenSymbol, toTokenNumber } from "@/lib/token-format"
 import Link from "next/link"
 
 const ConnectModal = dynamic(
@@ -58,12 +59,17 @@ export function SessionCard({ session }: SessionCardProps) {
 
   // Determine if using ETH or ERC20 token
   const isEth = session.paymentToken === ZeroAddress
+  const tokenSymbol = getPaymentTokenSymbol(
+    session.paymentToken,
+    session.paymentTokenSymbol
+  )
   const productLabel = getProductInfoLabel(resolvedProductInfoId)
   const productShortLabel = getProductInfoShortLabel(resolvedProductInfoId)
 
-  // Format price - currently all tokens use 18 decimals (ETH and test ERC20)
-  // TODO: Add proper decimal detection when supporting real USDT (6 decimals)
-  const ticketPriceNum = Number(formatEther(session.ticketPrice))
+  const ticketPriceNum = toTokenNumber(
+    session.ticketPrice,
+    session.paymentTokenDecimals
+  )
   
   const totalTickets = Number(session.totalTickets)
   const ticketsSold = Number(session.ticketsSold)
@@ -167,11 +173,15 @@ export function SessionCard({ session }: SessionCardProps) {
         <div className="bg-base-300/60 rounded-xl p-3 sm:p-4 text-center border border-base-content/5">
           <p className="text-xs text-base-content/40 mb-1">{t.products.prizeValue}</p>
           <p className="text-xl sm:text-2xl font-bold text-primary font-display">
-            {totalPoolValue.toFixed(4)} {isEth ? "ETH" : "TOKEN"}
+            {formatTokenAmount(
+              session.ticketPrice * session.totalTickets,
+              session.paymentTokenDecimals,
+              tokenSymbol
+            )}
           </p>
           <p className="text-xs text-base-content/40 mt-1">
-            {ticketPriceNum.toFixed(4)} {isEth ? "ETH" : "TOKEN"} / {t.products.ticket}
-            <span className="ml-1">(~{totalPoolUsdt.toFixed(2)} USDT)</span>
+            {formatTokenAmount(session.ticketPrice, session.paymentTokenDecimals, tokenSymbol)} / {t.products.ticket}
+            {isEth && <span className="ml-1">(~{totalPoolUsdt.toFixed(2)} USDT)</span>}
           </p>
         </div>
 

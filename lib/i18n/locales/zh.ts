@@ -68,6 +68,7 @@ export const zh: Dictionary = {
     colTime: "时间",
     colVerify: "链上验证",
     verify: "查看",
+    noRecords: "暂无开奖记录",
     hoursAgo: "{n} 小时前",
     daysAgo: "{n} 天前",
     hardwareWallet: "硬件钱包",

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { Check, Copy, ExternalLink, Eye, EyeOff, History, ShieldAlert, ShieldCheck, Ticket } from "lucide-react"
-import { formatEther, ZeroAddress } from "ethers"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { useT } from "@/lib/i18n/context"
 import { getExplorerTxUrl } from "@/lib/contracts/addresses"
@@ -18,6 +17,7 @@ import {
   type LocalPurchaseRecord,
 } from "@/lib/purchase-history"
 import { useWallet } from "@/lib/wallet/context"
+import { formatTokenAmount, getPaymentTokenSymbol } from "@/lib/token-format"
 
 interface SessionPurchaseHistoryProps {
   session: SessionConfigFromEvent
@@ -83,7 +83,7 @@ export function SessionPurchaseHistory({
     mergedRecords.reduce((sum, record) => sum + Number(record.quantity), 0) +
     pendingLocalRecords.reduce((sum, record) => sum + record.quantity, 0)
   const hasVisibleRecords = mergedRecords.length > 0 || pendingLocalRecords.length > 0
-  const isEth = session.paymentToken === ZeroAddress
+  const tokenSymbol = getPaymentTokenSymbol(session.paymentToken, session.paymentTokenSymbol)
 
   const pendingRecords = useMemo(
     () =>
@@ -226,7 +226,11 @@ export function SessionPurchaseHistory({
                     <div className="rounded-2xl border border-base-content/5 bg-base-200/70 p-4">
                       <p className="text-xs text-base-content/45">{t.session.purchaseAmount}</p>
                       <p className="mt-1 font-semibold">
-                        {Number(formatEther(record.totalCostWei)).toFixed(4)} {isEth ? "ETH" : "TOKEN"}
+                        {formatTokenAmount(
+                          record.totalCostWei,
+                          session.paymentTokenDecimals,
+                          tokenSymbol
+                        )}
                       </p>
                     </div>
                     <div className="rounded-2xl border border-base-content/5 bg-base-200/70 p-4">
@@ -271,7 +275,11 @@ export function SessionPurchaseHistory({
               const localDetails = record.localDetails
               const recordKey = record.transactionHash
               const totalCostWei = session.ticketPrice * record.quantity
-              const totalCostLabel = `${Number(formatEther(totalCostWei)).toFixed(4)} ${isEth ? "ETH" : "TOKEN"}`
+              const totalCostLabel = formatTokenAmount(
+                totalCostWei,
+                session.paymentTokenDecimals,
+                tokenSymbol
+              )
               const purchasedAt = record.blockTimestamp > 0
                 ? new Date(record.blockTimestamp * 1000).toLocaleString()
                 : "-"

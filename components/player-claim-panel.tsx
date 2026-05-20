@@ -11,7 +11,8 @@ import {
   useClaimPrincipalAndPenalty,
   type SessionConfigFromEvent,
 } from "@/lib/contracts/hooks"
-import { formatEther, ZeroAddress } from "ethers"
+import { ZeroAddress } from "ethers"
+import { formatTokenAmount, getPaymentTokenSymbol, toTokenNumber } from "@/lib/token-format"
 
 interface PlayerClaimPanelProps {
   session: SessionConfigFromEvent
@@ -47,12 +48,20 @@ export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPane
   }
 
   const isEth = session.paymentToken === ZeroAddress
-  const ticketPriceNum = Number(formatEther(session.ticketPrice))
+  const tokenSymbol = getPaymentTokenSymbol(
+    session.paymentToken,
+    session.paymentTokenSymbol
+  )
+  const ticketPriceNum = toTokenNumber(session.ticketPrice, session.paymentTokenDecimals)
+  const principalAmountWei = session.ticketPrice * BigInt(playerTicketCount)
   const principalAmount = ticketPriceNum * playerTicketCount
 
   const slashBps = isCreatorAbsentSettled
     ? session.creatorAbsentPartnerDepositSlashBps
     : session.unsoldTicketsPartnerDepositSlashBps
+  const compensationAmountWei =
+    (session.ticketPrice * BigInt(slashBps) * BigInt(playerTicketCount)) / 10000n
+  const totalRefundWei = principalAmountWei + compensationAmountWei
   const compensationPerTicket = (ticketPriceNum * slashBps) / 10000
   const compensationAmount = compensationPerTicket * playerTicketCount
   const totalRefund = principalAmount + compensationAmount
@@ -108,23 +117,25 @@ export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPane
           <div className="bg-base-300/50 rounded-lg p-3">
             <p className="text-xs text-base-content/40">{t.session.principalAmount}</p>
             <p className="font-bold text-lg">
-              {principalAmount.toFixed(4)} {isEth ? "ETH" : "TOKEN"}
+              {formatTokenAmount(principalAmountWei, session.paymentTokenDecimals, tokenSymbol)}
             </p>
           </div>
           <div className="bg-base-300/50 rounded-lg p-3">
             <p className="text-xs text-base-content/40">{t.session.compensationAmount}</p>
             <p className="font-bold text-lg text-warning">
-              +{compensationAmount.toFixed(4)} {isEth ? "ETH" : "TOKEN"}
+              +{formatTokenAmount(compensationAmountWei, session.paymentTokenDecimals, tokenSymbol)}
             </p>
           </div>
           <div className="bg-base-300/50 rounded-lg p-3">
             <p className="text-xs text-base-content/40">{t.session.totalRefund}</p>
             <p className="font-bold text-lg text-primary">
-              {totalRefund.toFixed(4)} {isEth ? "ETH" : "TOKEN"}
+              {formatTokenAmount(totalRefundWei, session.paymentTokenDecimals, tokenSymbol)}
             </p>
-            <p className="text-xs text-base-content/40">
-              ~{totalRefundUsdt.toFixed(2)} USDT
-            </p>
+            {isEth && (
+              <p className="text-xs text-base-content/40">
+                ~{totalRefundUsdt.toFixed(2)} USDT
+              </p>
+            )}
           </div>
         </div>
 

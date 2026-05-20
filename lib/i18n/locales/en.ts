@@ -68,6 +68,7 @@ export const en: Dictionary = {
     colTime: "Time",
     colVerify: "On-chain",
     verify: "View",
+    noRecords: "No winner records yet",
     hoursAgo: "{n}h ago",
     daysAgo: "{n}d ago",
     hardwareWallet: "Hardware Wallet",

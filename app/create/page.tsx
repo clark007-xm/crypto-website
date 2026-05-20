@@ -11,9 +11,11 @@ import { DurationPicker } from "@/components/duration-picker"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import { computeCreatorCommitment, saveLocalCreatorSecret } from "@/lib/creator-session-secret"
-import { useIsPartner, useCreateSession, usePartnerDeposit, useDepositToTreasury } from "@/lib/contracts/hooks"
+import { useIsPartner, useCreateSession, usePartnerDeposit, useDepositToTreasury, usePaymentTokenMetadata } from "@/lib/contracts/hooks"
+import { getAddresses, hasDeployedContracts } from "@/lib/contracts/addresses"
 import { saveLocalSessionProductInfo } from "@/lib/local-session-product-info"
 import { PRODUCT_INFO_OPTIONS, getProductInfoLabel } from "@/lib/product-info"
+import { parseTokenAmount } from "@/lib/token-format"
 import { 
   MAX_COMMIT_DURATION_DAYS, 
   MAX_COMMIT_DURATION_SECONDS,
@@ -27,7 +29,6 @@ export default function CreatePage() {
   const transactionFlow = useTransactionFlow()
   const { isPartner, loading: partnerLoading, checked: partnerChecked } = useIsPartner()
   const { createSession, loading: creating, error: createError } = useCreateSession()
-  const { balance: depositBalance, isInsufficient, shortfall, loading: depositLoading, checked: depositChecked, refresh: refreshDeposit } = usePartnerDeposit()
   const { deposit: doDeposit, loading: depositing, error: depositError } = useDepositToTreasury()
 
   // Form state
@@ -62,6 +63,16 @@ export default function CreatePage() {
 
   // Compute commitment from secret (for preview)
   const commitment = computeCreatorCommitment(secret)
+  const paymentTokenAddress = useMemo(
+    () => (hasDeployedContracts(chainId ?? null) ? getAddresses(chainId ?? null).usdt : null),
+    [chainId]
+  )
+  const {
+    metadata: paymentTokenMetadata,
+    loading: paymentTokenMetadataLoading,
+  } = usePaymentTokenMetadata(paymentTokenAddress)
+  const paymentTokenDecimals = paymentTokenMetadata.decimals
+  const paymentTokenSymbol = paymentTokenMetadata.symbol
 
   // Copy secret to clipboard
   const copySecret = async () => {
@@ -109,15 +120,18 @@ export default function CreatePage() {
   // Calculate preview values
   const priceNum = parseFloat(ticketPrice) || 0
   const ticketsNum = parseInt(totalTickets, 10) || 0
+  const requiredDepositWei = useMemo(() => {
+    try {
+      return parseTokenAmount(ticketPrice || "0", paymentTokenDecimals) * BigInt(ticketsNum)
+    } catch {
+      return 0n
+    }
+  }, [paymentTokenDecimals, ticketPrice, ticketsNum])
+  const { balance: depositBalance, isInsufficient, shortfall, loading: depositLoading, checked: depositChecked, refresh: refreshDeposit } = usePartnerDeposit(requiredDepositWei)
   const partnerShareNum = parseFloat(partnerShare) || 0
   const platformFeeNum = parseFloat(platformFee) || 0
-  const totalPoolEth = priceNum * ticketsNum
-  const yourShareEth = totalPoolEth * (partnerShareNum / 100)
-  
-  // ETH to USDT approximate rate (for display only)
-  const ETH_USDT_RATE = 2500
-  const totalPoolUsdt = totalPoolEth * ETH_USDT_RATE
-  const yourShareUsdt = yourShareEth * ETH_USDT_RATE
+  const totalPoolValue = priceNum * ticketsNum
+  const yourShareValue = totalPoolValue * (partnerShareNum / 100)
   const selectedProductLabel = useMemo(
     () => (productInfoId ? getProductInfoLabel(productInfoId) : t.create.productInfoPlaceholder),
     [productInfoId, t.create.productInfoPlaceholder]
@@ -148,7 +162,7 @@ export default function CreatePage() {
     // commitment is already computed from secret
     let parsedTicketPrice: bigint
     try {
-      parsedTicketPrice = parseEther(ticketPrice)
+      parsedTicketPrice = parseTokenAmount(ticketPrice, paymentTokenDecimals)
     } catch {
       alert(t.create.failed)
       return
@@ -159,7 +173,7 @@ export default function CreatePage() {
       fields: [
         { label: t.tx.account, value: shortAddress ?? address ?? "-", tone: "success" },
         { label: t.tx.action, value: t.create.submit },
-        { label: t.tx.details, value: `${selectedProductLabel} · ${ticketPrice} ETH / ${totalTickets} tickets` },
+        { label: t.tx.details, value: `${selectedProductLabel} · ${ticketPrice} ${paymentTokenSymbol} / ${totalTickets} tickets` },
       ],
     })
 
@@ -385,11 +399,12 @@ export default function CreatePage() {
                 className="grow"
                 required
               />
-              <span className="text-base-content/40">ETH</span>
+              <span className="text-base-content/40">{paymentTokenSymbol}</span>
             </label>
             <label className="label">
               <span className="label-text-alt text-base-content/40">
-                {t.create.ticketPriceHint} ({priceNum > 0 ? `~${(priceNum * ETH_USDT_RATE).toFixed(2)} USDT` : ""})
+                {t.create.ticketPriceHint}
+                {priceNum > 0 ? ` (${priceNum.toFixed(4)} ${paymentTokenSymbol})` : ""}
               </span>
             </label>
           </div>
@@ -610,13 +625,15 @@ export default function CreatePage() {
                 </div>
                 <div>
                   <p className="text-xs text-base-content/40">{t.create.totalPool}</p>
-                  <p className="text-lg font-bold text-primary">{totalPoolEth.toFixed(4)} ETH</p>
-                  <p className="text-xs text-base-content/40">~{totalPoolUsdt.toFixed(2)} USDT</p>
+                  <p className="text-lg font-bold text-primary">
+                    {totalPoolValue.toFixed(4)} {paymentTokenSymbol}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-base-content/40">{t.create.yourShare}</p>
-                  <p className="text-lg font-bold text-accent">{yourShareEth.toFixed(4)} ETH</p>
-                  <p className="text-xs text-base-content/40">~{yourShareUsdt.toFixed(2)} USDT</p>
+                  <p className="text-lg font-bold text-accent">
+                    {yourShareValue.toFixed(4)} {paymentTokenSymbol}
+                  </p>
                 </div>
               </div>
             </div>
@@ -634,7 +651,7 @@ export default function CreatePage() {
           <button
             type="submit"
             className="btn btn-primary btn-block btn-lg"
-            disabled={creating || !secret || !productInfoId || isInsufficient}
+            disabled={creating || !secret || !productInfoId || isInsufficient || paymentTokenMetadataLoading}
           >
             {creating && <span className="loading loading-spinner"></span>}
             {creating ? t.create.creating : t.create.submit}

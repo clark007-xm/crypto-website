@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
 import dynamic from "next/dynamic"
 import { ArrowLeft, Clock, ExternalLink, Ticket } from "lucide-react"
-import { formatEther, ZeroAddress } from "ethers"
+import { ZeroAddress } from "ethers"
 import Link from "next/link"
 
 import { useT } from "@/lib/i18n/context"
@@ -22,9 +22,14 @@ import { BuyModal } from "@/components/buy-modal"
 import { CreatorPanel } from "@/components/creator-panel"
 import { PlayerClaimPanel } from "@/components/player-claim-panel"
 import { SessionTreasuryCard } from "@/components/session-treasury-card"
+import { formatTokenAmount, getPaymentTokenSymbol, toTokenNumber } from "@/lib/token-format"
 
 // ETH to USDT rate for display
 const ETH_USDT_RATE = 2500
+
+function formatShortAddress(address: string) {
+  return `${address.slice(0, 6)}...${address.slice(-4)}`
+}
 
 function SessionPurchaseHistorySkeleton() {
   return (
@@ -127,9 +132,15 @@ export default function SessionDetailPage() {
   
   // Calculate values
   const isEth = resolvedSession?.paymentToken === ZeroAddress
+  const tokenSymbol = getPaymentTokenSymbol(
+    resolvedSession?.paymentToken,
+    resolvedSession?.paymentTokenSymbol
+  )
   const productLabel = getProductInfoLabel(resolvedProductInfoId)
   const productShortLabel = getProductInfoShortLabel(resolvedProductInfoId)
-  const ticketPriceNum = resolvedSession ? Number(formatEther(resolvedSession.ticketPrice)) : 0
+  const ticketPriceNum = resolvedSession
+    ? toTokenNumber(resolvedSession.ticketPrice, resolvedSession.paymentTokenDecimals)
+    : 0
   const totalTickets = resolvedSession ? Number(resolvedSession.totalTickets) : 0
   const ticketsSold = resolvedSession ? Number(resolvedSession.ticketsSold) : 0
   const availableTickets = Math.max(totalTickets - ticketsSold, 0)
@@ -291,11 +302,17 @@ export default function SessionDetailPage() {
             <div className="bg-base-300/60 rounded-xl p-4 text-center mt-4 border border-base-content/5">
               <p className="text-xs text-base-content/40 mb-1">{t.products.prizeValue}</p>
               <p className="text-2xl sm:text-3xl font-bold text-primary font-display">
-                {(ticketPriceNum * totalTickets).toFixed(4)} {isEth ? "ETH" : "TOKEN"}
+                {formatTokenAmount(
+                  resolvedSession.ticketPrice * resolvedSession.totalTickets,
+                  resolvedSession.paymentTokenDecimals,
+                  tokenSymbol
+                )}
               </p>
-              <p className="text-sm text-base-content/40 mt-1">
-                ~{(ticketPriceNum * totalTickets * ETH_USDT_RATE).toFixed(2)} USDT
-              </p>
+              {isEth && (
+                <p className="text-sm text-base-content/40 mt-1">
+                  ~{(ticketPriceNum * totalTickets * ETH_USDT_RATE).toFixed(2)} USDT
+                </p>
+              )}
             </div>
             
             {/* Countdown */}
@@ -341,10 +358,16 @@ export default function SessionDetailPage() {
               <div className="flex items-center justify-between py-3 border-b border-base-content/10">
                 <span className="text-base-content/60">{t.session.ticketPrice}</span>
                 <span className="font-semibold">
-                  {ticketPriceNum.toFixed(4)} {isEth ? "ETH" : "TOKEN"}
-                  <span className="text-xs text-base-content/40 ml-1">
-                    (~{(ticketPriceNum * ETH_USDT_RATE).toFixed(2)} USDT)
-                  </span>
+                  {formatTokenAmount(
+                    resolvedSession.ticketPrice,
+                    resolvedSession.paymentTokenDecimals,
+                    tokenSymbol
+                  )}
+                  {isEth && (
+                    <span className="text-xs text-base-content/40 ml-1">
+                      (~{(ticketPriceNum * ETH_USDT_RATE).toFixed(2)} USDT)
+                    </span>
+                  )}
                 </span>
               </div>
               
@@ -431,7 +454,35 @@ export default function SessionDetailPage() {
             <div className="card-body text-center">
               <p className="text-success font-bold">{t.session.sessionSettled}</p>
               {resolvedSession.settlementType === SESSION_SETTLEMENT_TYPES.NORMAL && (
-                <p className="mt-2 text-sm text-base-content/60">{t.session.prizeAutoSent}</p>
+                <>
+                  <p className="mt-2 text-sm text-base-content/60">{t.session.prizeAutoSent}</p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-base-content/5 bg-base-100/70 p-4">
+                      <p className="text-xs text-base-content/45">{t.winners.colWinner}</p>
+                      {resolvedSession.winner !== ZeroAddress ? (
+                        <Link
+                          href={getExplorerAddressUrl(resolvedSession.chainId, resolvedSession.winner)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 inline-flex items-center gap-1 font-semibold text-primary"
+                        >
+                          {formatShortAddress(resolvedSession.winner)}
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </Link>
+                      ) : (
+                        <p className="mt-1 font-semibold text-base-content/45">-</p>
+                      )}
+                    </div>
+                    <div className="rounded-2xl border border-base-content/5 bg-base-100/70 p-4">
+                      <p className="text-xs text-base-content/45">{t.session.winnerTicket}</p>
+                      <p className="mt-1 font-semibold">
+                        {resolvedSession.winningTicketIndex !== null
+                          ? `#${resolvedSession.winningTicketIndex.toString()}`
+                          : "-"}
+                      </p>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </div>

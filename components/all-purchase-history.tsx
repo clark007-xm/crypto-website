@@ -15,7 +15,6 @@ import {
   ShieldCheck,
   Ticket,
 } from "lucide-react"
-import { formatEther, ZeroAddress } from "ethers"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import {
   useAllPurchaseHistory,
@@ -36,6 +35,7 @@ import {
 import { CHAINS } from "@/lib/rpc/nodes"
 import { useRpc } from "@/lib/rpc/context"
 import { useWallet } from "@/lib/wallet/context"
+import { formatTokenAmount, getPaymentTokenSymbol } from "@/lib/token-format"
 
 interface GroupedPurchaseHistory {
   session: SessionCatalogFromEvent
@@ -43,8 +43,12 @@ interface GroupedPurchaseHistory {
   totalTickets: number
 }
 
-function formatPurchaseAmount(amountWei: bigint, isEth: boolean) {
-  return `${Number(formatEther(amountWei)).toFixed(4)} ${isEth ? "ETH" : "TOKEN"}`
+function formatPurchaseAmount(amountWei: bigint, session: SessionCatalogFromEvent) {
+  return formatTokenAmount(
+    amountWei,
+    session.paymentTokenDecimals,
+    getPaymentTokenSymbol(session.paymentToken, session.paymentTokenSymbol)
+  )
 }
 
 function InfoCard({ label, value }: { label: string; value: string }) {
@@ -71,7 +75,6 @@ function PurchaseOrderContent({
   onToggleSecret: (key: string) => void
   t: ReturnType<typeof useT>
 }) {
-  const isEth = record.session.paymentToken === ZeroAddress
   const totalCostWei = record.session.ticketPrice * record.quantity
   const purchasedAt =
     record.blockTimestamp > 0 ? new Date(record.blockTimestamp * 1000).toLocaleString() : "-"
@@ -128,7 +131,7 @@ function PurchaseOrderContent({
           />
           <InfoCard
             label={t.session.purchaseAmount}
-            value={formatPurchaseAmount(totalCostWei, isEth)}
+            value={formatPurchaseAmount(totalCostWei, record.session)}
           />
           <InfoCard label={t.session.purchasedAt} value={purchasedAt} />
           {record.isWinningRecord && record.winningTicketIndex !== null && (
@@ -394,8 +397,11 @@ export function AllPurchaseHistory() {
             className="rounded-3xl border border-base-content/5 bg-base-100/60 px-4"
           >
             {groupedSessions.map((group) => {
-              const isEth = group.session.paymentToken === ZeroAddress
               const totalPoolWei = group.session.ticketPrice * group.session.totalTickets
+              const tokenSymbol = getPaymentTokenSymbol(
+                group.session.paymentToken,
+                group.session.paymentTokenSymbol
+              )
 
               return (
                 <AccordionItem
@@ -408,14 +414,14 @@ export function AllPurchaseHistory() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-base font-semibold">
-                            {isEth ? t.products.ethPool : t.products.tokenPool}
+                            {tokenSymbol === "ETH" ? t.products.ethPool : `${tokenSymbol} ${t.products.tokenPool}`}
                           </span>
                           <span className="rounded-full border border-base-content/10 bg-base-200 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-base-content/60">
                             {shortAddress(group.session.sessionAddress)}
                           </span>
                         </div>
                         <p className="mt-1 text-sm text-base-content/45">
-                          {formatPurchaseAmount(totalPoolWei, isEth)}
+                          {formatPurchaseAmount(totalPoolWei, group.session)}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2 lg:justify-end">
@@ -466,7 +472,7 @@ export function AllPurchaseHistory() {
                     <div className="mt-4 grid gap-3 sm:grid-cols-3">
                       <InfoCard
                         label={t.session.ticketPrice}
-                        value={formatPurchaseAmount(group.session.ticketPrice, isEth)}
+                        value={formatPurchaseAmount(group.session.ticketPrice, group.session)}
                       />
                       <InfoCard
                         label={t.session.totalTicketsLabel}
@@ -474,7 +480,7 @@ export function AllPurchaseHistory() {
                       />
                       <InfoCard
                         label={t.products.prizeValue}
-                        value={formatPurchaseAmount(totalPoolWei, isEth)}
+                        value={formatPurchaseAmount(totalPoolWei, group.session)}
                       />
                     </div>
 

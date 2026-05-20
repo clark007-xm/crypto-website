@@ -27,6 +27,7 @@ import { getMaxBlockRange } from "./config";
 
 const REQUIRED_PARTNER_DEPOSIT = 100000000000000000n;
 const SESSION_INTERFACE = new Interface(SESSION_ABI);
+const TREASURY_INTERFACE = new Interface(TREASURY_ABI);
 const FACTORY_CURRENT_CREATE_SELECTOR = "0xfb7b6d1b";
 const FACTORY_LEGACY_CREATE_SELECTOR = "0xd4654ecd";
 type FactoryAbiVersion = "current" | "legacy";
@@ -338,6 +339,61 @@ export function useUsdtBalance() {
   return { balance, loading, refresh };
 }
 
+export function usePaymentTokenMetadata(tokenAddress: string | null | undefined) {
+  const { chainId: walletChainId } = useWallet();
+  const { readProvider, chain } = useRpc();
+  const activeChainId =
+    walletChainId && hasDeployedContracts(walletChainId)
+      ? walletChainId
+      : CHAINS[chain].numericId;
+  const [metadata, setMetadata] = useState<PaymentTokenMetadata>({
+    decimals: 18,
+    symbol: "ETH",
+  });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refresh() {
+      if (!readProvider || !tokenAddress) {
+        setMetadata({ decimals: 18, symbol: "ETH" });
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const nextMetadata = await loadPaymentTokenMetadata(
+          readProvider,
+          tokenAddress,
+          activeChainId,
+        );
+        if (!cancelled) setMetadata(nextMetadata);
+      } catch {
+        if (!cancelled) {
+          setMetadata({
+            decimals: 18,
+            symbol:
+              tokenAddress.toLowerCase() === ZeroAddress.toLowerCase()
+                ? "ETH"
+                : "TOKEN",
+          });
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void refresh();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChainId, readProvider, tokenAddress]);
+
+  return { metadata, loading };
+}
+
 export function useUsdtAllowance(spender: string | null) {
   const { address, chainId, provider } = useWallet();
   const [allowance, setAllowance] = useState<bigint>(0n);
@@ -543,11 +599,10 @@ export function useTreasuryBalance(): TreasuryBalanceState {
 /**
  * Get partner's deposit balance in Treasury
  */
-export function usePartnerDeposit() {
+export function usePartnerDeposit(requiredDepositWei = REQUIRED_PARTNER_DEPOSIT) {
   const { address, chainId, status } = useWallet();
   const treasury = useTreasuryContract();
   const [balance, setBalance] = useState<bigint>(0n);
-  const [requiredDeposit, setRequiredDeposit] = useState<bigint>(0n);
   const [loading, setLoading] = useState(false);
   const [checked, setChecked] = useState(false);
   const lastCheckKey = useRef<string | null>(null);
@@ -559,7 +614,6 @@ export function usePartnerDeposit() {
     const currentTreasury = treasuryRef.current;
     if (!address || !currentTreasury || !chainId) {
       setBalance(0n);
-      setRequiredDeposit(0n);
       setChecked(false);
       return;
     }
@@ -567,22 +621,19 @@ export function usePartnerDeposit() {
     try {
       const bal = (await currentTreasury.balances(address)) as bigint;
       setBalance(bal);
-      setRequiredDeposit(REQUIRED_PARTNER_DEPOSIT);
       setChecked(true);
-      lastCheckKey.current = `${address}-${chainId}`;
+      lastCheckKey.current = `${address}-${chainId}-${requiredDepositWei.toString()}`;
     } catch {
       setBalance(0n);
-      setRequiredDeposit(REQUIRED_PARTNER_DEPOSIT);
       setChecked(true);
     } finally {
       setLoading(false);
     }
-  }, [address, chainId]);
+  }, [address, chainId, requiredDepositWei]);
 
   useEffect(() => {
     if (status !== "connected") {
       setBalance(0n);
-      setRequiredDeposit(0n);
       setChecked(false);
       lastCheckKey.current = null;
       return;
@@ -593,18 +644,22 @@ export function usePartnerDeposit() {
       return;
     }
 
-    const key = address && chainId ? `${address}-${chainId}` : null;
+    const key =
+      address && chainId
+        ? `${address}-${chainId}-${requiredDepositWei.toString()}`
+        : null;
     if (key && lastCheckKey.current !== key) {
       refresh();
     }
-  }, [status, address, chainId, treasury, refresh]);
+  }, [status, address, chainId, treasury, refresh, requiredDepositWei]);
 
-  const isInsufficient = checked && balance < requiredDeposit;
-  const shortfall = requiredDeposit > balance ? requiredDeposit - balance : 0n;
+  const isInsufficient = checked && balance < requiredDepositWei;
+  const shortfall =
+    requiredDepositWei > balance ? requiredDepositWei - balance : 0n;
 
   return {
     balance,
-    requiredDeposit,
+    requiredDeposit: requiredDepositWei,
     isInsufficient,
     shortfall,
     loading,
@@ -942,10 +997,6 @@ export function useCreateSession() {
         };
 
         callbacks?.onAwaitingSignature?.();
-        console.warn(
-          sessionConfig,
-          "sessionConfig---------------------------------------------------------",
-        );
         const tx = await factoryContract.createSession(sessionConfig);
         callbacks?.onSubmitted?.(tx);
         const receipt = await tx.wait();
@@ -993,6 +1044,8 @@ export interface SessionCatalogFromEvent {
   treasury: string;
   sessionCommitment: string;
   paymentToken: string;
+  paymentTokenDecimals: number;
+  paymentTokenSymbol: string;
   ticketPrice: bigint;
   totalTickets: bigint;
   partnerShareBps: number;
@@ -1018,9 +1071,15 @@ interface TimedCacheEntry<T> {
   updatedAt: number;
 }
 
+export interface PaymentTokenMetadata {
+  decimals: number;
+  symbol: string;
+}
+
 const ACTIVE_SESSIONS_CACHE_TTL_MS = 15_000;
 const SESSION_CATALOG_CACHE_TTL_MS = 30_000;
 const GLOBAL_PURCHASE_HISTORY_CACHE_TTL_MS = 15_000;
+const PAYMENT_TOKEN_METADATA_CACHE_TTL_MS = 5 * 60_000;
 const ACTIVE_SESSIONS_CACHE = new Map<
   number,
   TimedCacheEntry<SessionConfigFromEvent[]>
@@ -1032,6 +1091,10 @@ const SESSION_CATALOG_CACHE = new Map<
 const GLOBAL_PURCHASE_HISTORY_CACHE = new Map<
   string,
   TimedCacheEntry<GlobalSessionPurchaseRecord[]>
+>();
+const PAYMENT_TOKEN_METADATA_CACHE = new Map<
+  string,
+  TimedCacheEntry<PaymentTokenMetadata>
 >();
 
 function getFreshCacheValue<T>(
@@ -1078,6 +1141,12 @@ function buildSessionCatalogEntry(
     sessionCommitment: config[2 + productInfoOffset] as string,
     treasury: config[3 + productInfoOffset] as string,
     paymentToken: config[4 + productInfoOffset] as string,
+    paymentTokenDecimals: 18,
+    paymentTokenSymbol:
+      String(config[4 + productInfoOffset]).toLowerCase() ===
+      ZeroAddress.toLowerCase()
+        ? "ETH"
+        : "TOKEN",
     ticketPrice: BigInt(
       (config[5 + productInfoOffset] as bigint | number | string | undefined) ??
         0,
@@ -1099,6 +1168,60 @@ function buildSessionCatalogEntry(
     unlockTimestamp,
     commitDeadline,
     revealDeadline,
+  };
+}
+
+async function loadPaymentTokenMetadata(
+  provider: Contract["runner"],
+  tokenAddress: string,
+  chainId: number,
+): Promise<PaymentTokenMetadata> {
+  if (!tokenAddress || tokenAddress.toLowerCase() === ZeroAddress.toLowerCase()) {
+    return { decimals: 18, symbol: "ETH" };
+  }
+
+  const cacheKey = `${chainId}-${tokenAddress.toLowerCase()}`;
+  const cached = getFreshCacheValue(
+    PAYMENT_TOKEN_METADATA_CACHE,
+    cacheKey,
+    PAYMENT_TOKEN_METADATA_CACHE_TTL_MS,
+  );
+  if (cached) return cached;
+
+  try {
+    const contract = new Contract(tokenAddress, ERC20_ABI, provider);
+    const [rawDecimals, rawSymbol] = await Promise.all([
+      contract.decimals().catch(() => 18),
+      contract.symbol().catch(() => "TOKEN"),
+    ]);
+    const decimals = Number(rawDecimals);
+    const metadata = {
+      decimals: Number.isFinite(decimals) ? decimals : 18,
+      symbol: String(rawSymbol || "TOKEN"),
+    };
+    PAYMENT_TOKEN_METADATA_CACHE.set(cacheKey, {
+      value: metadata,
+      updatedAt: Date.now(),
+    });
+    return metadata;
+  } catch {
+    return { decimals: 18, symbol: "TOKEN" };
+  }
+}
+
+async function withPaymentTokenMetadata<T extends SessionCatalogFromEvent>(
+  session: T,
+  provider: Contract["runner"],
+): Promise<T> {
+  const metadata = await loadPaymentTokenMetadata(
+    provider,
+    session.paymentToken,
+    session.chainId,
+  );
+  return {
+    ...session,
+    paymentTokenDecimals: metadata.decimals,
+    paymentTokenSymbol: metadata.symbol,
   };
 }
 
@@ -1135,14 +1258,12 @@ export function useActiveSessions() {
         getFactoryAbi(factoryVersion),
         provider,
       );
-      const maxBlockRange = getMaxBlockRange();
-      const startBlock = Math.max(deployBlock, currentBlock - maxBlockRange);
       const maxBlocksPerQuery = 9000;
       const filter = factoryContract.filters.SessionCreated();
       const allEvents: Awaited<ReturnType<typeof factoryContract.queryFilter>> =
         [];
 
-      let fromBlock = startBlock;
+      let fromBlock = deployBlock;
       while (fromBlock <= currentBlock) {
         const toBlock = Math.min(
           fromBlock + maxBlocksPerQuery - 1,
@@ -1192,12 +1313,12 @@ export function useActiveSessions() {
               ? normalizeSettlementType(rawSettlementType)
               : null;
 
-            return {
+            return await withPaymentTokenMetadata({
               ...catalogEntry,
               ticketsSold: BigInt(ticketsSold),
               isSettled: Boolean(isSettled),
               settlementType,
-            } satisfies SessionConfigFromEvent;
+            } satisfies SessionConfigFromEvent, provider);
           } catch {
             return null;
           }
@@ -1285,7 +1406,7 @@ export function useAllSessionCatalog() {
         fromBlock = toBlock + 1;
       }
 
-      const sessionCatalog = allEvents
+      const sessionCatalogCandidates = allEvents
         .map((event) => {
           try {
             const parsed = factoryContract.interface.parseLog(event);
@@ -1311,6 +1432,12 @@ export function useAllSessionCatalog() {
         .filter((session): session is SessionCatalogFromEvent =>
           Boolean(session?.sessionAddress),
         );
+
+      const sessionCatalog = await Promise.all(
+        sessionCatalogCandidates.map((session) =>
+          withPaymentTokenMetadata(session, readProvider),
+        ),
+      );
 
       const nextSessions = sessionCatalog.reverse();
       SESSION_CATALOG_CACHE.set(activeChainId, {
@@ -1435,12 +1562,12 @@ export function useSessionCatalogEntry(sessionAddress: string | null) {
         return;
       }
 
-      const nextSession = buildSessionCatalogEntry(
+      const nextSession = await withPaymentTokenMetadata(buildSessionCatalogEntry(
         activeChainId,
         parsedSessionAddress,
         config,
         factoryVersion,
-      );
+      ), provider);
       setSession(nextSession);
       lastFetchKey.current = `${activeChainId}-${normalizedAddress}`;
     } catch {
@@ -1561,6 +1688,11 @@ export function useSessionInfo(sessionAddress: string | null) {
         Boolean(isSettled) && settlementType === SESSION_SETTLEMENT_TYPES.NORMAL
           ? await querySessionWinnerSelection(currentSession)
           : null;
+      const paymentTokenMetadata = await loadPaymentTokenMetadata(
+        currentSession.runner,
+        String(paymentToken),
+        activeChainId,
+      );
 
       setInfo({
         chainId: activeChainId,
@@ -1574,6 +1706,8 @@ export function useSessionInfo(sessionAddress: string | null) {
         totalTickets: BigInt(totalTickets),
         ticketsSold: BigInt(ticketsSold),
         paymentToken: String(paymentToken),
+        paymentTokenDecimals: paymentTokenMetadata.decimals,
+        paymentTokenSymbol: paymentTokenMetadata.symbol,
         partnerShareBps: Number(partnerShareBps),
         platformFeeBps: Number(platformFeeBps),
         unsoldTicketsPartnerDepositSlashBps: Number(
@@ -1669,6 +1803,16 @@ export interface SessionPurchaseRecord {
 
 export interface GlobalSessionPurchaseRecord extends SessionPurchaseRecord {
   session: SessionCatalogFromEvent;
+}
+
+export interface RecentWinnerRecord {
+  session: SessionCatalogFromEvent;
+  winner: string;
+  ticketIndex: bigint;
+  blockNumber: number;
+  logIndex: number;
+  transactionHash: string;
+  blockTimestamp: number;
 }
 
 interface PurchaseLogLike {
@@ -1772,9 +1916,26 @@ async function loadBlockTimestampMap(
 async function querySessionPurchaseEvents(
   currentSession: Contract,
   playerAddress: string,
+  fromBlock?: number,
+  toBlock?: number,
 ) {
   const filter = currentSession.filters.TicketsPurchased(playerAddress);
-  return currentSession.queryFilter(filter);
+  if (fromBlock === undefined || toBlock === undefined) {
+    return currentSession.queryFilter(filter);
+  }
+
+  const ranges = buildBlockRanges(fromBlock, toBlock, PURCHASE_LOG_BLOCK_RANGE);
+  const results = await runTasksWithConcurrency(
+    ranges.map(
+      (range) => () =>
+        currentSession.queryFilter(filter, range.fromBlock, range.toBlock),
+    ),
+    PURCHASE_LOG_CONCURRENCY,
+  );
+
+  return results.flatMap((result) =>
+    result.status === "fulfilled" ? result.value : [],
+  );
 }
 
 interface WinnerSelectionResult {
@@ -1782,18 +1943,39 @@ interface WinnerSelectionResult {
   ticketIndex: bigint;
   blockNumber: number;
   logIndex: number;
+  transactionHash: string;
 }
 
 async function querySessionWinnerSelection(
   currentSession: Contract,
   winnerAddress?: string | null,
+  fromBlock?: number,
+  toBlock?: number,
 ) {
   let events: Awaited<ReturnType<Contract["queryFilter"]>>;
   try {
     const filter = winnerAddress
       ? currentSession.filters.WinnerSelected(winnerAddress)
       : currentSession.filters.WinnerSelected();
-    events = await currentSession.queryFilter(filter);
+    if (fromBlock !== undefined && toBlock !== undefined) {
+      const ranges = buildBlockRanges(
+        fromBlock,
+        toBlock,
+        PURCHASE_LOG_BLOCK_RANGE,
+      );
+      const results = await runTasksWithConcurrency(
+        ranges.map(
+          (range) => () =>
+            currentSession.queryFilter(filter, range.fromBlock, range.toBlock),
+        ),
+        PURCHASE_LOG_CONCURRENCY,
+      );
+      events = results.flatMap((result) =>
+        result.status === "fulfilled" ? result.value : [],
+      );
+    } else {
+      events = await currentSession.queryFilter(filter);
+    }
   } catch {
     // Public RPCs may reject broad historical log queries. Missing winner logs
     // should not make an otherwise readable settled session look "not found".
@@ -1817,6 +1999,7 @@ async function querySessionWinnerSelection(
               | string,
           ),
           blockNumber: event.blockNumber,
+          transactionHash: event.transactionHash,
           logIndex: Number(
             (event as { logIndex?: number; index?: number }).logIndex ??
               (event as { index?: number }).index ??
@@ -1953,7 +2136,7 @@ async function queryPurchaseLogsAcrossSessions(
 async function queryWinnerLogsAcrossSessions(
   provider: PurchaseLogProvider,
   sessionAddresses: string[],
-  winnerAddress: string,
+  winnerAddress: string | null,
   fromBlock: number,
   toBlock: number,
 ) {
@@ -2069,6 +2252,7 @@ function parseWinnerSelectionLogs(
             | string,
         ),
         blockNumber: log.blockNumber,
+        transactionHash: log.transactionHash,
         logIndex: Number(log.logIndex ?? log.index ?? 0),
       } satisfies WinnerSelectionResult;
       const key = log.address.toLowerCase();
@@ -2127,6 +2311,20 @@ interface UseTreasuryActivityOptions {
   userAddress?: string | null;
   limit?: number;
 }
+
+interface TreasuryActivityQueryOptions {
+  sessionAddress?: string | null;
+  userAddress?: string | null;
+}
+
+interface TreasuryLogRequest {
+  fromBlock: number;
+  toBlock: number;
+  topics: ReturnType<Interface["encodeFilterTopics"]>;
+}
+
+const TREASURY_ACTIVITY_BLOCK_RANGE = 9000;
+const TREASURY_ACTIVITY_CONCURRENCY = 6;
 
 function getTreasuryEventKind(eventName: string): TreasuryActivityKind | null {
   switch (eventName) {
@@ -2233,30 +2431,47 @@ function parseTreasuryActivityEvent(
 }
 
 async function queryTreasuryEvents(
-  provider: { getLogs: (filter: { address: string; fromBlock: number; toBlock: number }) => Promise<Log[]> },
+  provider: {
+    getLogs: (filter: {
+      address: string;
+      fromBlock: number;
+      toBlock: number;
+      topics?: ReturnType<Interface["encodeFilterTopics"]>;
+    }) => Promise<Log[]>;
+  },
   address: string,
   fromBlock: number,
   toBlock: number,
+  options: TreasuryActivityQueryOptions,
 ) {
-  const events: Log[] = [];
-  const maxBlocksPerQuery = 9000;
-  let currentFromBlock = fromBlock;
-
-  while (currentFromBlock <= toBlock) {
-    const currentToBlock = Math.min(
-      currentFromBlock + maxBlocksPerQuery - 1,
-      toBlock,
-    );
-    const batchEvents = await provider.getLogs({
-      address,
-      fromBlock: currentFromBlock,
-      toBlock: currentToBlock,
-    });
-    events.push(...batchEvents);
-    currentFromBlock = currentToBlock + 1;
+  if (fromBlock > toBlock) {
+    return [] as Log[];
   }
 
-  return events;
+  const requests = buildTreasuryLogRequests(fromBlock, toBlock, options);
+  if (requests.length === 0) {
+    return [] as Log[];
+  }
+
+  const results = await runTasksWithConcurrency(
+    requests.map(
+      (request) => () => loadTreasuryLogsBatch(provider, address, request),
+    ),
+    TREASURY_ACTIVITY_CONCURRENCY,
+  );
+
+  const events = results.flatMap((result) =>
+    result.status === "fulfilled" ? result.value : [],
+  );
+
+  return Array.from(
+    new Map(
+      events.map((event) => [
+        `${event.transactionHash}-${event.blockNumber}-${Number((event as { logIndex?: number; index?: number }).logIndex ?? (event as { index?: number }).index ?? 0)}`,
+        event,
+      ]),
+    ).values(),
+  );
 }
 
 function isSameAddress(left: string | null | undefined, right: string | null | undefined) {
@@ -2283,6 +2498,132 @@ function matchesTreasuryActivityRecord(
     isSameAddress(record.partner, userAddress) ||
     isSameAddress(record.recipient, userAddress)
   );
+}
+
+function buildTreasuryLogRequests(
+  fromBlock: number,
+  toBlock: number,
+  options: TreasuryActivityQueryOptions,
+) {
+  const { sessionAddress, userAddress } = options;
+  const blockRanges = buildBlockRanges(
+    fromBlock,
+    toBlock,
+    TREASURY_ACTIVITY_BLOCK_RANGE,
+  );
+  const topicsList: ReturnType<Interface["encodeFilterTopics"]>[] = [];
+
+  if (sessionAddress) {
+    topicsList.push(
+      TREASURY_INTERFACE.encodeFilterTopics("SessionRegistered", [
+        sessionAddress,
+      ]),
+      TREASURY_INTERFACE.encodeFilterTopics("PlayerPayTicketIn", [
+        sessionAddress,
+        null,
+      ]),
+      TREASURY_INTERFACE.encodeFilterTopics("SessionTicketBalanceUpdated", [
+        sessionAddress,
+      ]),
+      TREASURY_INTERFACE.encodeFilterTopics("SessionDepositBalanceUpdated", [
+        sessionAddress,
+      ]),
+      TREASURY_INTERFACE.encodeFilterTopics("PartnerDepositLocked", [
+        sessionAddress,
+        null,
+      ]),
+      TREASURY_INTERFACE.encodeFilterTopics("PartnerDepositUnlocked", [
+        sessionAddress,
+        null,
+      ]),
+      TREASURY_INTERFACE.encodeFilterTopics("PartnerDepositSlashed", [
+        sessionAddress,
+        null,
+      ]),
+      TREASURY_INTERFACE.encodeFilterTopics(
+        "EmergencyPartnerDepositUnlocked",
+        [sessionAddress, null],
+      ),
+      TREASURY_INTERFACE.encodeFilterTopics("DistributeFunds", [
+        sessionAddress,
+        null,
+      ]),
+    );
+  }
+
+  if (!sessionAddress && userAddress) {
+    topicsList.push(
+      TREASURY_INTERFACE.encodeFilterTopics("BalanceUpdated", [userAddress]),
+      TREASURY_INTERFACE.encodeFilterTopics("PartnerDepositUpdated", [
+        userAddress,
+      ]),
+      TREASURY_INTERFACE.encodeFilterTopics("Withdraw", [userAddress]),
+      TREASURY_INTERFACE.encodeFilterTopics("PlayerPayTicketIn", [
+        null,
+        userAddress,
+      ]),
+      TREASURY_INTERFACE.encodeFilterTopics("PartnerDepositLocked", [
+        null,
+        userAddress,
+      ]),
+      TREASURY_INTERFACE.encodeFilterTopics("PartnerDepositUnlocked", [
+        null,
+        userAddress,
+      ]),
+      TREASURY_INTERFACE.encodeFilterTopics("PartnerDepositSlashed", [
+        null,
+        userAddress,
+      ]),
+      TREASURY_INTERFACE.encodeFilterTopics(
+        "EmergencyPartnerDepositUnlocked",
+        [null, userAddress],
+      ),
+      TREASURY_INTERFACE.encodeFilterTopics("DistributeFunds", [
+        null,
+        userAddress,
+      ]),
+    );
+  }
+
+  return topicsList.flatMap((topics) =>
+    blockRanges.map(
+      (range) =>
+        ({
+          fromBlock: range.fromBlock,
+          toBlock: range.toBlock,
+          topics,
+        }) satisfies TreasuryLogRequest,
+    ),
+  );
+}
+
+async function loadTreasuryLogsBatch(
+  provider: {
+    getLogs: (filter: {
+      address: string;
+      fromBlock: number;
+      toBlock: number;
+      topics?: ReturnType<Interface["encodeFilterTopics"]>;
+    }) => Promise<Log[]>;
+  },
+  address: string,
+  request: TreasuryLogRequest,
+) {
+  try {
+    return await provider.getLogs({
+      address,
+      fromBlock: request.fromBlock,
+      toBlock: request.toBlock,
+      topics: request.topics,
+    });
+  } catch {
+    return provider.getLogs({
+      address,
+      fromBlock: request.fromBlock,
+      toBlock: request.toBlock,
+      topics: request.topics,
+    });
+  }
 }
 
 export function useTreasuryActivity({
@@ -2322,15 +2663,15 @@ export function useTreasuryActivity({
       const { treasury, deployBlock } = getAddresses(activeChainId);
       const contract = new Contract(treasury, TREASURY_ABI, readProvider);
       const currentBlock = await readProvider.getBlockNumber();
-      const fromBlock = Math.max(
-        deployBlock,
-        currentBlock - getMaxBlockRange(),
-      );
       const events = await queryTreasuryEvents(
         readProvider,
         treasury,
-        fromBlock,
+        deployBlock,
         currentBlock,
+        {
+          sessionAddress,
+          userAddress: targetUserAddress,
+        },
       );
       const uniqueBlockNumbers = [
         ...new Set(
@@ -2455,10 +2796,12 @@ function parseSessionPurchaseEvents(
 
 export function useSessionPurchaseHistory(sessionAddress: string | null) {
   const { address } = useWallet();
+  const { chain } = useRpc();
   const session = useSessionContract(sessionAddress);
   const [records, setRecords] = useState<SessionPurchaseRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const lastFetchKey = useRef<string | null>(null);
+  const activeChainId = CHAINS[chain].numericId;
 
   const sessionRef = useRef(session);
   sessionRef.current = session;
@@ -2477,10 +2820,22 @@ export function useSessionPurchaseHistory(sessionAddress: string | null) {
         setRecords([]);
         return;
       }
+      const { deployBlock } = getAddresses(activeChainId);
+      const currentBlock = await provider.getBlockNumber();
 
       const [events, winnerSelection] = await Promise.all([
-        querySessionPurchaseEvents(currentSession, address),
-        querySessionWinnerSelection(currentSession, address).catch(() => null),
+        querySessionPurchaseEvents(
+          currentSession,
+          address,
+          deployBlock,
+          currentBlock,
+        ),
+        querySessionWinnerSelection(
+          currentSession,
+          address,
+          deployBlock,
+          currentBlock,
+        ).catch(() => null),
       ]);
       const uniqueBlockNumbers = [
         ...new Set(
@@ -2507,7 +2862,7 @@ export function useSessionPurchaseHistory(sessionAddress: string | null) {
     } finally {
       setLoading(false);
     }
-  }, [address, sessionAddress]);
+  }, [activeChainId, address, sessionAddress]);
 
   useEffect(() => {
     const key =
@@ -2699,6 +3054,104 @@ export function useAllPurchaseHistory() {
     loading: sessionsLoading || loading,
     refresh: refreshAll,
   };
+}
+
+export function useRecentWinners(limit = 5) {
+  const { readProvider } = useRpc();
+  const { sessions, loading: sessionsLoading } = useAllSessionCatalog();
+  const [records, setRecords] = useState<RecentWinnerRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const lastFetchKey = useRef<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!readProvider || sessions.length === 0) {
+      setRecords([]);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const sessionMap = new Map(
+        sessions.map(
+          (session) => [session.sessionAddress.toLowerCase(), session] as const,
+        ),
+      );
+      const { deployBlock } = getAddresses(sessions[0].chainId);
+      const currentBlock = await readProvider.getBlockNumber();
+      const sessionAddresses = sessions.map((session) => session.sessionAddress);
+      const winnerLogs = await queryWinnerLogsAcrossSessions(
+        readProvider,
+        sessionAddresses,
+        null,
+        deployBlock,
+        currentBlock,
+      );
+      const uniqueBlockNumbers = [
+        ...new Set(
+          winnerLogs
+            .map((log) => log.blockNumber)
+            .filter((value): value is number => typeof value === "number"),
+        ),
+      ];
+      const blockTimestampMap = await loadBlockTimestampMap(
+        readProvider,
+        uniqueBlockNumbers,
+      );
+      const nextRecords = winnerLogs
+        .map((log) => {
+          try {
+            const parsed = SESSION_INTERFACE.parseLog(log);
+            if (!parsed || parsed.name !== "WinnerSelected") {
+              return null;
+            }
+
+            const session = sessionMap.get(log.address.toLowerCase());
+            if (!session) return null;
+
+            return {
+              session,
+              winner: String(parsed.args?.winner ?? parsed.args?.[0] ?? ZeroAddress),
+              ticketIndex: BigInt(
+                (parsed.args?.ticketIndex ?? parsed.args?.[1] ?? 0) as
+                  | bigint
+                  | number
+                  | string,
+              ),
+              transactionHash: log.transactionHash,
+              blockNumber: log.blockNumber,
+              blockTimestamp: blockTimestampMap.get(log.blockNumber) ?? 0,
+              logIndex: Number(log.logIndex ?? log.index ?? 0),
+            } satisfies RecentWinnerRecord;
+          } catch {
+            return null;
+          }
+        })
+        .filter((record): record is RecentWinnerRecord => Boolean(record))
+        .sort((a, b) => {
+          if (b.blockNumber !== a.blockNumber)
+            return b.blockNumber - a.blockNumber;
+          return b.logIndex - a.logIndex;
+        })
+        .slice(0, limit);
+
+      setRecords(nextRecords);
+      lastFetchKey.current = `${limit}-${sessionAddresses.join(",")}`;
+    } catch {
+      setRecords([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [limit, readProvider, sessions]);
+
+  useEffect(() => {
+    if (sessionsLoading) return;
+    const key = `${limit}-${sessions.map((session) => session.sessionAddress).join(",")}`;
+    if (key !== lastFetchKey.current) {
+      void refresh();
+    }
+  }, [limit, refresh, sessions, sessionsLoading]);
+
+  return { records, loading: loading || sessionsLoading, refresh };
 }
 
 /* ════════════════════════════════════════════════════════════════════════════

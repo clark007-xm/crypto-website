@@ -68,6 +68,7 @@ export interface Dictionary {
     colTime: string
     colVerify: string
     verify: string
+    noRecords: string
     hoursAgo: string
     daysAgo: string
     hardwareWallet: string

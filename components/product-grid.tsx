@@ -87,11 +87,6 @@ export function ProductGrid() {
     });
   }, [sessions]);
 
-  console.warn(
-    sortedSessions,
-    "sortedSessions---------------------------------------------------------",
-  );
-
   return (
     <section
       id="ongoing"

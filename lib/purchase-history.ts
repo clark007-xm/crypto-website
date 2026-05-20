@@ -9,6 +9,8 @@ export interface LocalPurchaseRecord {
   useBalance?: boolean
   ticketPriceWei?: string
   paymentToken?: string
+  paymentTokenDecimals?: number
+  paymentTokenSymbol?: string
   buyer?: string
 }
 

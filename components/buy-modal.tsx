@@ -3,12 +3,13 @@
 import { useState, useMemo, useEffect, useRef } from "react"
 import dynamic from "next/dynamic"
 import { X, Eye, EyeOff, Copy, RefreshCw, Ticket, Loader2, Check } from "lucide-react"
-import { formatEther, hexlify, randomBytes, keccak256, toUtf8Bytes, ZeroAddress } from "ethers"
+import { hexlify, randomBytes, keccak256, toUtf8Bytes, ZeroAddress } from "ethers"
 import { useTransactionFlow } from "@/components/transaction-flow-provider"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import { getSessionPhaseState, useBuyTickets, useSessionInfo } from "@/lib/contracts/hooks"
 import type { SessionConfigFromEvent } from "@/lib/contracts/hooks"
+import { formatTokenAmount, getPaymentTokenSymbol, toTokenNumber } from "@/lib/token-format"
 
 const ConnectModal = dynamic(
   () => import("./connect-modal").then((mod) => mod.ConnectModal)
@@ -42,6 +43,8 @@ export function BuyModal({
       ticketPrice: sessionInfo.ticketPrice,
       totalTickets: sessionInfo.totalTickets,
       paymentToken: sessionInfo.paymentToken,
+      paymentTokenDecimals: sessionInfo.paymentTokenDecimals,
+      paymentTokenSymbol: sessionInfo.paymentTokenSymbol,
       unlockTimestamp: sessionInfo.unlockTimestamp,
       commitDurationSeconds: sessionInfo.commitDurationSeconds,
       revealDurationSeconds: sessionInfo.revealDurationSeconds,
@@ -88,9 +91,27 @@ export function BuyModal({
   const ticketsSold = Number(resolvedSession.ticketsSold)
   const availableTickets = Math.max(totalTickets - ticketsSold, 0)
   const isSoldOut = availableTickets <= 0
-  const ticketPriceEth = Number(formatEther(resolvedSession.ticketPrice))
   const isEth = resolvedSession.paymentToken === ZeroAddress
-  const totalCost = ticketPriceEth * quantity
+  const tokenSymbol = getPaymentTokenSymbol(
+    resolvedSession.paymentToken,
+    resolvedSession.paymentTokenSymbol
+  )
+  const ticketPriceValue = toTokenNumber(
+    resolvedSession.ticketPrice,
+    resolvedSession.paymentTokenDecimals
+  )
+  const ticketPriceLabel = formatTokenAmount(
+    resolvedSession.ticketPrice,
+    resolvedSession.paymentTokenDecimals,
+    tokenSymbol
+  )
+  const totalCostWei = resolvedSession.ticketPrice * BigInt(quantity)
+  const totalCostLabel = formatTokenAmount(
+    totalCostWei,
+    resolvedSession.paymentTokenDecimals,
+    tokenSymbol
+  )
+  const totalCost = ticketPriceValue * quantity
   const totalCostUsdt = totalCost * ethPrice
   
   // Reset state when modal opens
@@ -165,7 +186,7 @@ export function BuyModal({
         { label: t.tx.action, value: t.session.buyTickets },
         {
           label: t.tx.details,
-          value: `${quantity} × ${ticketPriceEth.toFixed(4)} ${isEth ? "ETH" : "TOKEN"}`,
+          value: `${quantity} × ${ticketPriceLabel}`,
         },
       ],
     })
@@ -194,6 +215,8 @@ export function BuyModal({
         useBalance,
         ticketPriceWei: resolvedSession.ticketPrice.toString(),
         paymentToken: resolvedSession.paymentToken,
+        paymentTokenDecimals: resolvedSession.paymentTokenDecimals,
+        paymentTokenSymbol: resolvedSession.paymentTokenSymbol,
         buyer: address ?? undefined,
       })
       localStorage.setItem(secretsKey, JSON.stringify(existingSecrets))
@@ -263,7 +286,7 @@ export function BuyModal({
               <div className="flex items-center justify-between">
                 <span className="text-sm text-base-content/60">{t.session.ticketPrice}</span>
                 <span className="font-bold text-primary">
-                  {ticketPriceEth.toFixed(4)} {isEth ? "ETH" : "TOKEN"}
+                  {ticketPriceLabel}
                 </span>
               </div>
             </div>
@@ -433,11 +456,13 @@ export function BuyModal({
                 <span className="text-base-content/60">{t.session.totalCost}</span>
                 <div className="text-right">
                   <p className="text-xl font-bold text-primary">
-                    {totalCost.toFixed(4)} {isEth ? "ETH" : "TOKEN"}
+                    {totalCostLabel}
                   </p>
-                  <p className="text-xs text-base-content/40">
-                    ~{totalCostUsdt.toFixed(2)} USDT
-                  </p>
+                  {isEth && (
+                    <p className="text-xs text-base-content/40">
+                      ~{totalCostUsdt.toFixed(2)} USDT
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

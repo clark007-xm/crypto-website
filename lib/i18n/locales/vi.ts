@@ -68,6 +68,7 @@ export const vi: Dictionary = {
     colTime: "Th\u1EDDi gian",
     colVerify: "Tr\u00EAn chu\u1ED7i",
     verify: "Xem",
+    noRecords: "Ch\u01B0a c\u00F3 l\u1ECBch s\u1EED tr\u00FAng th\u01B0\u1EDFng",
     hoursAgo: "{n} gi\u1EDD tr\u01B0\u1EDBc",
     daysAgo: "{n} ng\u00E0y tr\u01B0\u1EDBc",
     hardwareWallet: "V\u00ED ph\u1EA7n c\u1EE9ng",
