@@ -31,6 +31,32 @@ const config: Config = {
   daisyui: {
     themes: [
       {
+        "onetap-light": {
+          primary: "#3155eb", "primary-content": "#ffffff",
+          secondary: "#e7ebfc", "secondary-content": "#1e36a5",
+          accent: "#3155eb", "accent-content": "#ffffff",
+          neutral: "#172039", "neutral-content": "#ffffff",
+          "base-100": "#f6f5ef", "base-200": "#eeeee9", "base-300": "#e3e5e9",
+          "base-content": "#111727", info: "#245bbb", "info-content": "#ffffff",
+          success: "#197755", "success-content": "#ffffff",
+          warning: "#916019", "warning-content": "#ffffff",
+          error: "#bf3444", "error-content": "#ffffff",
+          "--rounded-box": "1rem", "--rounded-btn": "0.75rem", "--rounded-badge": "1rem",
+        },
+        "onetap-dark": {
+          primary: "#ff826c", "primary-content": "#26110e",
+          secondary: "#292e48", "secondary-content": "#e7e5f5",
+          accent: "#ff826c", "accent-content": "#26110e",
+          neutral: "#242940", "neutral-content": "#f4f0ff",
+          "base-100": "#141728", "base-200": "#20253b", "base-300": "#101322",
+          "base-content": "#f3eff9", info: "#a9c7ff", "info-content": "#152337",
+          success: "#8fd9b6", "success-content": "#102e23",
+          warning: "#f5c88a", "warning-content": "#34240f",
+          error: "#ff93a1", "error-content": "#3b1118",
+          "--rounded-box": "1.25rem", "--rounded-btn": "1rem", "--rounded-badge": "1rem",
+        },
+      },
+      {
         cryptodark: {
           "primary": "#14b8a6",
           "primary-content": "#052e29",

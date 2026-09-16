@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   Contract,
   Interface,
@@ -11,7 +11,9 @@ import {
 import type { ContractTransactionResponse, Log } from "ethers";
 import { useWallet } from "@/lib/wallet/context";
 import { useRpc } from "@/lib/rpc/context";
-import { CHAINS } from "@/lib/rpc/nodes";
+import { CHAINS, getNodesByChain } from "@/lib/rpc/nodes";
+import { ChainReadClient, ChainReadError, type ReadErrorKind } from "@/lib/rpc/read-client";
+import { SessionLogIndex, EMPTY_INDEX } from "./log-index";
 import type { TransactionLifecycleCallbacks } from "@/lib/transactions/types";
 import { buildCreatorRevealPayload } from "@/lib/creator-session-secret";
 import { getReadableContractErrorMessage } from "./errors";
@@ -1076,14 +1078,9 @@ export interface PaymentTokenMetadata {
   symbol: string;
 }
 
-const ACTIVE_SESSIONS_CACHE_TTL_MS = 15_000;
 const SESSION_CATALOG_CACHE_TTL_MS = 30_000;
 const GLOBAL_PURCHASE_HISTORY_CACHE_TTL_MS = 15_000;
 const PAYMENT_TOKEN_METADATA_CACHE_TTL_MS = 5 * 60_000;
-const ACTIVE_SESSIONS_CACHE = new Map<
-  number,
-  TimedCacheEntry<SessionConfigFromEvent[]>
->();
 const SESSION_CATALOG_CACHE = new Map<
   number,
   TimedCacheEntry<SessionCatalogFromEvent[]>
@@ -1225,247 +1222,224 @@ async function withPaymentTokenMetadata<T extends SessionCatalogFromEvent>(
   };
 }
 
-export function useActiveSessions() {
-  const factory = useFactoryContractReadOnly();
-  const { chain } = useRpc();
-  const [sessions, setSessions] = useState<SessionConfigFromEvent[]>([]);
-  const [loading, setLoading] = useState(false);
+const SESSION_INDEXES = new Map<string, SessionLogIndex>();
+const INDEX_READERS = new Map<string, ChainReadClient>();
+const CURRENT_FACTORY_INTERFACE = new Interface(FACTORY_ABI);
+const LEGACY_FACTORY_INTERFACE = new Interface(FACTORY_ABI_LEGACY);
+const SESSION_TOPICS = [...new Set([
+  CURRENT_FACTORY_INTERFACE.getEvent("SessionCreated")!.topicHash,
+  LEGACY_FACTORY_INTERFACE.getEvent("SessionCreated")!.topicHash,
+])];
+const SESSION_STATUS_CACHE = new Map<string, TimedCacheEntry<SessionConfigFromEvent>>();
+const SESSION_STATUS_FLIGHTS = new Map<string, Promise<SessionConfigFromEvent>>();
+const INDEX_TOKEN_CACHE = new Map<string, Promise<PaymentTokenMetadata>>();
 
-  const factoryRef = useRef(factory);
-  factoryRef.current = factory;
+function readRunner(client: ChainReadClient) {
+  return { provider: null, call: (tx: { to?: unknown; data?: unknown }) => client.send<string>("eth_call", [{ to: tx.to, data: tx.data }, "latest"]) };
+}
+function loadIndexToken(client: ChainReadClient, token: string): Promise<PaymentTokenMetadata> {
+  if (token.toLowerCase() === ZeroAddress.toLowerCase()) return Promise.resolve({ decimals: 18, symbol: "ETH" });
+  const key = `${client.chainId}:${token.toLowerCase()}`;
+  const previous = INDEX_TOKEN_CACHE.get(key);
+  if (previous) return previous;
+  const contract = new Contract(token, ERC20_ABI, readRunner(client));
+  const promise = Promise.all([contract.decimals(), contract.symbol()]).then(([raw, symbol]) => {
+    const decimals = Number(raw);
+    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) throw new ChainReadError("invalid-response");
+    return { decimals, symbol: String(symbol) };
+  }).catch(error => { INDEX_TOKEN_CACHE.delete(key); throw error; });
+  INDEX_TOKEN_CACHE.set(key, promise);
+  return promise;
+}
+
+function useSharedSessionIndex(mode: "page" | "all" = "page") {
+  const { chain, activeNode } = useRpc();
+  const [retryRevision, setRetryRevision] = useState(0);
   const activeChainId = CHAINS[chain].numericId;
-
-  const refresh = useCallback(async () => {
-    const currentFactory = factoryRef.current;
-    if (!currentFactory) {
-      setSessions([]);
-      return;
+  const { factory, deployBlock } = getAddresses(activeChainId);
+  const deployed = hasDeployedContracts(activeChainId);
+  const key = `${activeChainId}:${factory.toLowerCase()}:${deployBlock}`;
+  const client = useMemo(() => {
+    const readerKey = `${activeChainId}:${activeNode.id}`;
+    let reader = INDEX_READERS.get(readerKey);
+    if (!reader) {
+      const nodes = [...getNodesByChain(chain)].sort((a, b) => Number(b.id === activeNode.id) - Number(a.id === activeNode.id));
+      reader = new ChainReadClient(activeChainId, nodes.map(node => node.url));
+      INDEX_READERS.set(readerKey, reader);
     }
-
-    setLoading(true);
-    try {
-      const provider = currentFactory.runner?.provider;
-      if (!provider) {
-        setSessions([]);
-        return;
-      }
-
-      const currentBlock = await provider.getBlockNumber();
-      const { factory, deployBlock } = getAddresses(activeChainId);
-      const factoryVersion = await detectFactoryAbiVersion(provider, factory);
-      const factoryContract = new Contract(
-        factory,
-        getFactoryAbi(factoryVersion),
-        provider,
-      );
-      const maxBlocksPerQuery = 9000;
-      const filter = factoryContract.filters.SessionCreated();
-      const allEvents: Awaited<ReturnType<typeof factoryContract.queryFilter>> =
-        [];
-
-      let fromBlock = deployBlock;
-      while (fromBlock <= currentBlock) {
-        const toBlock = Math.min(
-          fromBlock + maxBlocksPerQuery - 1,
-          currentBlock,
-        );
-        const batchEvents = await factoryContract.queryFilter(
-          filter,
-          fromBlock,
-          toBlock,
-        );
-        allEvents.push(...batchEvents);
-        fromBlock = toBlock + 1;
-      }
-
-      const sessionConfigs = await Promise.all(
-        allEvents.map(async (event) => {
-          try {
-            const parsed = factoryContract.interface.parseLog(event);
-            if (!parsed || parsed.name !== "SessionCreated") {
-              return null;
-            }
-
-            const sessionAddress = parsed.args?.[1];
-            const config = parsed.args?.[2] as readonly unknown[] | undefined;
-            if (typeof sessionAddress !== "string" || !config) {
-              return null;
-            }
-            const sessionContract = new Contract(
-              sessionAddress,
-              SESSION_ABI,
-              provider,
-            );
-            const catalogEntry = buildSessionCatalogEntry(
-              activeChainId,
-              sessionAddress,
-              config,
-              factoryVersion,
-            );
-            const [ticketsSold, isSettled] = await Promise.all([
-              sessionContract.nextTicketIndex().catch(() => 0n),
-              sessionContract.isSettled().catch(() => false),
-            ]);
-            const rawSettlementType = Boolean(isSettled)
-              ? await sessionContract.settledType().catch(() => 0n)
-              : 0n;
-            const settlementType = Boolean(isSettled)
-              ? normalizeSettlementType(rawSettlementType)
-              : null;
-
-            return await withPaymentTokenMetadata({
-              ...catalogEntry,
-              ticketsSold: BigInt(ticketsSold),
-              isSettled: Boolean(isSettled),
-              settlementType,
-            } satisfies SessionConfigFromEvent, provider);
-          } catch {
-            return null;
-          }
-        }),
-      );
-
-      const validConfigs = sessionConfigs.filter(
-        (session): session is SessionConfigFromEvent =>
-          Boolean(session?.sessionAddress),
-      );
-      const nextSessions = validConfigs.reverse();
-      ACTIVE_SESSIONS_CACHE.set(activeChainId, {
-        value: nextSessions,
-        updatedAt: Date.now(),
-      });
-      setSessions(nextSessions);
-    } catch {
-      setSessions([]);
-    } finally {
-      setLoading(false);
+    return reader;
+  }, [activeChainId, chain, activeNode.id]);
+  const index = useMemo(() => {
+    let existing = SESSION_INDEXES.get(key);
+    if (!existing) {
+      let storage: Storage | undefined;
+      try { if (typeof window !== "undefined") storage = window.localStorage; } catch { /* optional */ }
+      existing = new SessionLogIndex(activeChainId, factory, deployBlock, storage);
+      SESSION_INDEXES.set(key, existing);
     }
-  }, [activeChainId]);
-
+    return existing;
+  }, [key, activeChainId, factory, deployBlock]);
+  const snapshot = useSyncExternalStore(index.subscribe, index.snapshot, () => EMPTY_INDEX);
+  const reader = useMemo(() => ({
+    getBlockNumber: () => client.getBlockNumber(),
+    getLogs: (from: number, to: number) => client.getLogs(factory, [SESSION_TOPICS], from, to),
+    findSeedBlock: async (head: number) => {
+      const hasCode = async (block: number) => {
+        const code = await client.send<string>("eth_getCode", [factory, `0x${block.toString(16)}`]);
+        if (!/^0x[\da-f]*$/i.test(code)) throw new ChainReadError("invalid-response");
+        return code !== "0x";
+      };
+      if (!await hasCode(head)) return null;
+      let low = deployBlock, high = head;
+      // This is only a hint. Coverage is recorded exclusively for successfully queried logs.
+      while (high - low >= 9000) {
+        const middle = Math.floor((low + high) / 2);
+        if (await hasCode(middle)) high = middle;
+        else low = middle + 1;
+      }
+      return low;
+    },
+  }), [client, factory, deployBlock]);
   useEffect(() => {
-    if (factory) {
-      const cachedSessions = getFreshCacheValue(
-        ACTIVE_SESSIONS_CACHE,
-        activeChainId,
-        ACTIVE_SESSIONS_CACHE_TTL_MS,
-      );
-      if (cachedSessions) {
-        setSessions(cachedSessions);
-        return;
+    if (!deployed) return;
+    let active = true;
+    async function load() {
+      if (Date.now() - index.snapshot().updatedAt > 15_000) {
+        await index.sync(reader, { shouldContinue: () => active });
       }
-      refresh();
+      // Full-history consumers opt in; the homepage never blocks on this backfill.
+      while (active && mode === "all" && !index.snapshot().complete && !index.snapshot().error) {
+        await index.sync(reader, { revalidate: false, shouldContinue: () => active });
+      }
     }
-  }, [activeChainId, factory, refresh]);
+    void load();
+    return () => { active = false; };
+  }, [deployed, index, reader, mode, retryRevision]);
+  const sessions = useMemo(() => snapshot.logs.flatMap(log => {
+    for (const [version, iface] of [["current", CURRENT_FACTORY_INTERFACE], ["legacy", LEGACY_FACTORY_INTERFACE]] as const) {
+      try {
+        const event = iface.parseLog(log);
+        if (!event || event.name !== "SessionCreated") continue;
+        return [buildSessionCatalogEntry(activeChainId, String(event.args[1]), event.args[2], version)];
+      } catch { /* Try the other deployed ABI version. */ }
+    }
+    return [];
+  }), [snapshot.logs, activeChainId]);
+  const refresh = useCallback(async () => {
+    if (!deployed) return;
+    await index.sync(reader);
+    // Restart a full-history consumer after a recoverable error stopped its loop.
+    if (mode === "all" && !index.snapshot().error) setRetryRevision(value => value + 1);
+  }, [deployed, index, reader, mode]);
+  const loadMore = useCallback(() => deployed ? index.sync(reader, { revalidate: false }) : Promise.resolve(), [deployed, index, reader]);
+  return { key, sessions, snapshot, client, refresh, loadMore, deployed, activeChainId };
+}
 
-  return { sessions, loading, refresh };
+async function loadIndexedSession(client: ChainReadClient, key: string, session: SessionCatalogFromEvent) {
+  const cacheKey = `${key}:${session.sessionAddress.toLowerCase()}`;
+  const cached = getFreshCacheValue(SESSION_STATUS_CACHE, cacheKey, 15_000);
+  if (cached) return cached;
+  const pending = SESSION_STATUS_FLIGHTS.get(cacheKey);
+  if (pending) return pending;
+  const promise = (async () => {
+    const contract = new Contract(session.sessionAddress, SESSION_ABI, readRunner(client));
+    const [ticketsSold, isSettled, token] = await Promise.all([
+      contract.nextTicketIndex(), contract.isSettled(), loadIndexToken(client, session.paymentToken),
+    ]);
+    const settlementType = isSettled ? normalizeSettlementType(await contract.settledType()) : null;
+    const value: SessionConfigFromEvent = {
+      ...session, paymentTokenDecimals: token.decimals, paymentTokenSymbol: token.symbol,
+      ticketsSold: BigInt(ticketsSold), isSettled: Boolean(isSettled), settlementType,
+    };
+    SESSION_STATUS_CACHE.set(cacheKey, { value, updatedAt: Date.now() });
+    return value;
+  })().finally(() => SESSION_STATUS_FLIGHTS.delete(cacheKey));
+  SESSION_STATUS_FLIGHTS.set(cacheKey, promise);
+  return promise;
+}
+
+export function useActiveSessions() {
+  const catalog = useSharedSessionIndex();
+  const [visibleCount, setVisibleCount] = useState(12);
+  const [revision, setRevision] = useState(0);
+  const [state, setState] = useState<{ key: string; sessions: SessionConfigFromEvent[]; loading: boolean; error: ReadErrorKind | null }>({ key: "", sessions: [], loading: false, error: null });
+  useEffect(() => { setVisibleCount(12); }, [catalog.key]);
+  useEffect(() => {
+    let active = true;
+    const entries = catalog.sessions.slice(0, visibleCount);
+    setState(previous => ({ key: catalog.key, sessions: previous.key === catalog.key ? previous.sessions : [], loading: entries.length > 0, error: null }));
+    async function load() {
+      const result: SessionConfigFromEvent[] = [];
+      let error: ReadErrorKind | null = null;
+      for (const session of entries) {
+        if (!active) return;
+        try { result.push(await loadIndexedSession(catalog.client, catalog.key, session)); }
+        catch (reason) { error = reason instanceof ChainReadError ? reason.kind : "unavailable"; break; }
+        if (active) setState({ key: catalog.key, sessions: [...result], loading: true, error: null });
+      }
+      if (active) setState(previous => ({ key: catalog.key,
+        sessions: error && !result.length && previous.key === catalog.key
+          ? previous.sessions.filter(session => entries.some(entry => entry.sessionAddress === session.sessionAddress)) : result,
+        loading: false, error }));
+    }
+    void load();
+    return () => { active = false; };
+  }, [catalog.key, catalog.sessions, catalog.client, visibleCount, revision]);
+  const refresh = useCallback(async () => {
+    for (const key of SESSION_STATUS_CACHE.keys()) if (key.startsWith(`${catalog.key}:`)) SESSION_STATUS_CACHE.delete(key);
+    setRevision(value => value + 1);
+    await catalog.refresh();
+  }, [catalog.key, catalog.refresh]);
+  const loadMore = useCallback(async () => {
+    setVisibleCount(count => count + 12);
+    if (catalog.sessions.length <= visibleCount) await catalog.loadMore();
+  }, [catalog.sessions.length, visibleCount, catalog.loadMore]);
+  return {
+    sessions: state.key === catalog.key ? state.sessions : [],
+    loading: catalog.snapshot.loading || (state.key === catalog.key && state.loading),
+    error: catalog.snapshot.error ?? (state.key === catalog.key ? state.error : null),
+    complete: !catalog.deployed || catalog.snapshot.complete,
+    scannedBlocks: catalog.snapshot.scannedBlocks,
+    hasMore: catalog.deployed && (!catalog.snapshot.complete || catalog.sessions.length > visibleCount),
+    refresh, loadMore,
+  };
 }
 
 export function useAllSessionCatalog() {
-  const { readProvider, chain } = useRpc();
-  const [sessions, setSessions] = useState<SessionCatalogFromEvent[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const activeChainId = CHAINS[chain].numericId;
-
-  const refresh = useCallback(async () => {
-    if (!readProvider || !hasDeployedContracts(activeChainId)) {
-      setSessions([]);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const { factory, deployBlock } = getAddresses(activeChainId);
-      const factoryVersion = await detectFactoryAbiVersion(
-        readProvider,
-        factory,
-      );
-      const factoryContract = new Contract(
-        factory,
-        getFactoryAbi(factoryVersion),
-        readProvider,
-      );
-      const currentBlock = await readProvider.getBlockNumber();
-      const maxBlocksPerQuery = 9000;
-      const filter = factoryContract.filters.SessionCreated();
-      const allEvents: Awaited<ReturnType<typeof factoryContract.queryFilter>> =
-        [];
-
-      let fromBlock = deployBlock;
-      while (fromBlock <= currentBlock) {
-        const toBlock = Math.min(
-          fromBlock + maxBlocksPerQuery - 1,
-          currentBlock,
-        );
-        const batchEvents = await factoryContract.queryFilter(
-          filter,
-          fromBlock,
-          toBlock,
-        );
-        allEvents.push(...batchEvents);
-        fromBlock = toBlock + 1;
-      }
-
-      const sessionCatalogCandidates = allEvents
-        .map((event) => {
-          try {
-            const parsed = factoryContract.interface.parseLog(event);
-            if (!parsed || parsed.name !== "SessionCreated") {
-              return null;
-            }
-
-            const sessionAddress = parsed.args?.[1];
-            const config = parsed.args?.[2] as readonly unknown[] | undefined;
-            if (typeof sessionAddress !== "string" || !config) {
-              return null;
-            }
-            return buildSessionCatalogEntry(
-              activeChainId,
-              sessionAddress,
-              config,
-              factoryVersion,
-            );
-          } catch {
-            return null;
-          }
-        })
-        .filter((session): session is SessionCatalogFromEvent =>
-          Boolean(session?.sessionAddress),
-        );
-
-      const sessionCatalog = await Promise.all(
-        sessionCatalogCandidates.map((session) =>
-          withPaymentTokenMetadata(session, readProvider),
-        ),
-      );
-
-      const nextSessions = sessionCatalog.reverse();
-      SESSION_CATALOG_CACHE.set(activeChainId, {
-        value: nextSessions,
-        updatedAt: Date.now(),
-      });
-      setSessions(nextSessions);
-    } catch {
-      setSessions([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [activeChainId, readProvider]);
-
+  const catalog = useSharedSessionIndex("all");
+  const [state, setState] = useState<{ key: string; sessions: SessionCatalogFromEvent[]; loading: boolean; error: ReadErrorKind | null }>({ key: "", sessions: [], loading: false, error: null });
   useEffect(() => {
-    const cachedSessions = getFreshCacheValue(
-      SESSION_CATALOG_CACHE,
-      activeChainId,
-      SESSION_CATALOG_CACHE_TTL_MS,
-    );
-    if (cachedSessions) {
-      setSessions(cachedSessions);
+    let active = true;
+    if (!catalog.deployed) {
+      setState({ key: catalog.key, sessions: [], loading: false, error: null });
       return;
     }
-    void refresh();
-  }, [activeChainId, refresh]);
-
-  return { sessions, loading, refresh };
+    if (!catalog.snapshot.complete || catalog.snapshot.loading) return;
+    setState({ key: catalog.key, sessions: [], loading: true, error: null });
+    void (async () => {
+      try {
+        const next: SessionCatalogFromEvent[] = [];
+        for (const session of catalog.sessions) {
+          if (!active) return;
+          const token = await loadIndexToken(catalog.client, session.paymentToken);
+          next.push({ ...session, paymentTokenDecimals: token.decimals, paymentTokenSymbol: token.symbol });
+        }
+        if (active) {
+          SESSION_CATALOG_CACHE.set(catalog.activeChainId, { value: next, updatedAt: Date.now() });
+          setState({ key: catalog.key, sessions: next, loading: false, error: null });
+        }
+      } catch (error) {
+        if (active) setState({ key: catalog.key, sessions: [], loading: false, error: error instanceof ChainReadError ? error.kind : "unavailable" });
+      }
+    })();
+    return () => { active = false; };
+  }, [catalog.key, catalog.sessions, catalog.snapshot.complete, catalog.snapshot.loading, catalog.client, catalog.activeChainId, catalog.deployed]);
+  const error = catalog.snapshot.error ?? (state.key === catalog.key ? state.error : null);
+  return {
+    sessions: state.key === catalog.key ? state.sessions : [],
+    loading: catalog.deployed && !error && (!catalog.snapshot.complete || catalog.snapshot.loading || state.key !== catalog.key || state.loading),
+    error, scannedBlocks: catalog.snapshot.scannedBlocks, refresh: catalog.refresh, client: catalog.client,
+  };
 }
 
 export function useSessionCatalogEntry(sessionAddress: string | null) {
@@ -3057,101 +3031,77 @@ export function useAllPurchaseHistory() {
 }
 
 export function useRecentWinners(limit = 5) {
-  const { readProvider } = useRpc();
-  const { sessions, loading: sessionsLoading } = useAllSessionCatalog();
-  const [records, setRecords] = useState<RecentWinnerRecord[]>([]);
-  const [loading, setLoading] = useState(false);
-  const lastFetchKey = useRef<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    if (!readProvider || sessions.length === 0) {
-      setRecords([]);
+  const catalog = useAllSessionCatalog();
+  const { chain } = useRpc();
+  const chainId = CHAINS[chain].numericId;
+  const { deployBlock } = getAddresses(chainId);
+  const [state, setState] = useState<{ chainId: number; records: RecentWinnerRecord[]; loading: boolean; error: ReadErrorKind | null; nextBlock: number | null }>({ chainId, records: [], loading: false, error: null, nextBlock: null });
+  const generation = useRef(0);
+  const cursor = useRef<number | null>(null);
+  const knownRecords = useRef<RecentWinnerRecord[]>([]);
+  const refresh = useCallback(async (older = false) => {
+    const request = ++generation.current;
+    const isCurrent = () => request === generation.current;
+    if (!catalog.sessions.length) {
+      setState({ chainId, records: [], loading: false, error: catalog.error, nextBlock: null });
       return;
     }
-
-    setLoading(true);
+    setState(previous => ({ ...previous, chainId, loading: true, error: null }));
+    const sessionMap = new Map(catalog.sessions.map(session => [session.sessionAddress.toLowerCase(), session]));
+    let records = older ? [...knownRecords.current] : [];
+    let end = older ? cursor.current : null;
     try {
-      const sessionMap = new Map(
-        sessions.map(
-          (session) => [session.sessionAddress.toLowerCase(), session] as const,
-        ),
-      );
-      const { deployBlock } = getAddresses(sessions[0].chainId);
-      const currentBlock = await readProvider.getBlockNumber();
-      const sessionAddresses = sessions.map((session) => session.sessionAddress);
-      const winnerLogs = await queryWinnerLogsAcrossSessions(
-        readProvider,
-        sessionAddresses,
-        null,
-        deployBlock,
-        currentBlock,
-      );
-      const uniqueBlockNumbers = [
-        ...new Set(
-          winnerLogs
-            .map((log) => log.blockNumber)
-            .filter((value): value is number => typeof value === "number"),
-        ),
-      ];
-      const blockTimestampMap = await loadBlockTimestampMap(
-        readProvider,
-        uniqueBlockNumbers,
-      );
-      const nextRecords = winnerLogs
-        .map((log) => {
-          try {
-            const parsed = SESSION_INTERFACE.parseLog(log);
-            if (!parsed || parsed.name !== "WinnerSelected") {
-              return null;
-            }
-
-            const session = sessionMap.get(log.address.toLowerCase());
-            if (!session) return null;
-
-            return {
-              session,
-              winner: String(parsed.args?.winner ?? parsed.args?.[0] ?? ZeroAddress),
-              ticketIndex: BigInt(
-                (parsed.args?.ticketIndex ?? parsed.args?.[1] ?? 0) as
-                  | bigint
-                  | number
-                  | string,
-              ),
-              transactionHash: log.transactionHash,
-              blockNumber: log.blockNumber,
-              blockTimestamp: blockTimestampMap.get(log.blockNumber) ?? 0,
-              logIndex: Number(log.logIndex ?? log.index ?? 0),
-            } satisfies RecentWinnerRecord;
-          } catch {
-            return null;
-          }
-        })
-        .filter((record): record is RecentWinnerRecord => Boolean(record))
-        .sort((a, b) => {
-          if (b.blockNumber !== a.blockNumber)
-            return b.blockNumber - a.blockNumber;
-          return b.logIndex - a.logIndex;
-        })
-        .slice(0, limit);
-
-      setRecords(nextRecords);
-      lastFetchKey.current = `${limit}-${sessionAddresses.join(",")}`;
-    } catch {
-      setRecords([]);
-    } finally {
-      setLoading(false);
+      if (end === null) end = await catalog.client.getBlockNumber();
+      // Search backwards and stop once five newest winners are known; bounded pages for old history.
+      for (let page = 0; page < 6 && end >= deployBlock && records.length < limit; page++) {
+        if (!isCurrent()) return;
+        const from = Math.max(deployBlock, end - 8999);
+        const batch = [];
+        for (const addresses of chunkValues([...sessionMap.keys()], 25)) {
+          if (!isCurrent()) return;
+          batch.push(...await catalog.client.getLogs(addresses, [SESSION_INTERFACE.getEvent("WinnerSelected")!.topicHash], from, end));
+        }
+        for (const log of batch) {
+          const parsed = SESSION_INTERFACE.parseLog(log);
+          const session = sessionMap.get(log.address.toLowerCase());
+          if (!parsed || !session) continue;
+          records.push({ session, winner: String(parsed.args[0]), ticketIndex: BigInt(parsed.args[1]),
+            blockNumber: log.blockNumber, blockTimestamp: 0, logIndex: log.index, transactionHash: log.transactionHash });
+        }
+        records = [...new Map(records.map(record => [`${record.transactionHash}:${record.logIndex}`, record])).values()]
+          .sort((a, b) => b.blockNumber - a.blockNumber || b.logIndex - a.logIndex).slice(0, limit);
+        end = from - 1;
+        if (isCurrent()) {
+          cursor.current = end;
+          knownRecords.current = records;
+          setState({ chainId, records: [...records], loading: true, error: null, nextBlock: end });
+        }
+      }
+      for (const record of records) {
+        if (!isCurrent()) return;
+        const block = await catalog.client.send<{ timestamp: string } | null>("eth_getBlockByNumber", [`0x${record.blockNumber.toString(16)}`, false]);
+        if (block) record.blockTimestamp = Number(block.timestamp);
+      }
+      if (isCurrent()) setState({ chainId, records: [...records], loading: false, error: null, nextBlock: end });
+    } catch (error) {
+      if (isCurrent()) setState({ chainId, records, loading: false, error: error instanceof ChainReadError ? error.kind : "unavailable", nextBlock: cursor.current });
     }
-  }, [limit, readProvider, sessions]);
-
+  }, [catalog.sessions, catalog.client, catalog.error, chainId, deployBlock, limit]);
   useEffect(() => {
-    if (sessionsLoading) return;
-    const key = `${limit}-${sessions.map((session) => session.sessionAddress).join(",")}`;
-    if (key !== lastFetchKey.current) {
-      void refresh();
-    }
-  }, [limit, refresh, sessions, sessionsLoading]);
-
-  return { records, loading: loading || sessionsLoading, refresh };
+    cursor.current = null;
+    knownRecords.current = [];
+    if (!catalog.loading && !catalog.error) void refresh();
+    return () => { generation.current++; };
+  }, [catalog.loading, catalog.error, refresh]);
+  return {
+    records: state.chainId === chainId ? state.records : [],
+    loading: catalog.loading || (state.chainId === chainId && state.loading),
+    error: catalog.error ?? (state.chainId === chainId ? state.error : null),
+    scannedBlocks: catalog.scannedBlocks,
+    hasMore: state.nextBlock !== null && state.nextBlock >= deployBlock && state.records.length < limit,
+    refresh: () => catalog.error ? catalog.refresh() : refresh(),
+    loadMore: () => refresh(true),
+  };
 }
 
 /* ════════════════════════════════════════════════════════════════════════════

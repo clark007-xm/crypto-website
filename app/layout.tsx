@@ -5,8 +5,11 @@ import { I18nProvider } from "@/lib/i18n/context"
 import { RpcProvider } from "@/lib/rpc/context"
 import { WalletProvider } from "@/lib/wallet/context"
 import { TransactionFlowProvider } from "@/components/transaction-flow-provider"
+import { ThemeProvider } from "@/components/theme-provider"
+import { BottomNavigation } from "@/components/one-tap/navigation"
 
 import "./globals.css"
+import "./one-tap.css"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-space-grotesk" })
@@ -30,17 +33,20 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="zh-CN" data-theme="cryptodark" data-scroll-behavior="smooth" suppressHydrationWarning>
+    <html lang="zh-CN" data-scroll-behavior="smooth" suppressHydrationWarning>
       <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}>
+        <ThemeProvider attribute="data-theme" defaultTheme="onetap-light" themes={["onetap-light", "onetap-dark"]} enableSystem={false} storageKey="onetap-theme">
         <I18nProvider>
           <RpcProvider>
             <WalletProvider>
               <TransactionFlowProvider>
                 {children}
+                <React.Suspense><BottomNavigation /></React.Suspense>
               </TransactionFlowProvider>
             </WalletProvider>
           </RpcProvider>
         </I18nProvider>
+        </ThemeProvider>
       </body>
     </html>
   )

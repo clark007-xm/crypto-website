@@ -6,6 +6,7 @@ import { getExplorerTxUrl } from "@/lib/contracts/addresses"
 import { useRecentWinners } from "@/lib/contracts/hooks"
 import { getProductInfoLabel } from "@/lib/product-info"
 import { formatTokenAmount, getPaymentTokenSymbol } from "@/lib/token-format"
+import { useOneTapCopy } from "@/components/one-tap/navigation"
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`
@@ -22,7 +23,8 @@ function formatPrize(
 
 export function RecentWinners() {
   const t = useT()
-  const { records, loading } = useRecentWinners(5)
+  const { records, loading, error, scannedBlocks, hasMore, refresh, loadMore } = useRecentWinners(5)
+  const copy = useOneTapCopy()
 
   const formatTime = (blockTimestamp: number, blockNumber: number) => {
     if (!blockTimestamp) return `#${blockNumber}`
@@ -66,10 +68,10 @@ export function RecentWinners() {
                     </td>
                   </tr>
                 )}
-                {!loading && records.length === 0 && (
+                {!loading && !error && records.length === 0 && (
                   <tr className="border-base-content/5">
                     <td colSpan={5} className="py-8 text-center text-base-content/40">
-                      {t.winners.noRecords}
+                      {hasMore ? copy.partialWinners : t.winners.noRecords}
                     </td>
                   </tr>
                 )}
@@ -133,6 +135,12 @@ export function RecentWinners() {
             </table>
           </div>
         </div>
+      </div>
+      <div className="ot-chain-status" aria-live="polite">
+        {loading && <p>{copy.scanProgress.replace("{n}", scannedBlocks.toLocaleString())}</p>}
+        {error && <p role="alert">{error === "rate-limit" ? copy.rateLimited : error === "timeout" ? copy.readTimeout : copy.readUnavailable}</p>}
+        {error && <button className="ot-text-button" disabled={loading} onClick={() => refresh()}>{copy.refresh}</button>}
+        {hasMore && !error && <button className="ot-text-button" disabled={loading} onClick={() => loadMore()}>{copy.olderWinners}</button>}
       </div>
     </section>
   )

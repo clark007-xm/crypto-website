@@ -1,0 +1,71 @@
+import type { Locale } from "@/lib/i18n/types"
+
+const zh = {
+  pools: "奖池", entries: "参与", assets: "资产", fairness: "公平", connect: "连接钱包",
+  themeOne: "主题一", themeTwo: "主题二", themeSwitch: "切换主题", settings: "外观与网络",
+  headlineA: "今天，", headlineB: "参与一点惊喜", darkA: "轻轻一点，", darkB: "即刻参与",
+  tagline: "小小参与，汇聚更多可能", featured: "本期奖池", sample: "示例数据", each: "每份",
+  sold: "已售份额", remaining: "剩余", shares: "份", unit: "份", deadline: "参与截止", starts: "开始时间",
+  enter: "立即参与", rules: "查看规则", more: "更多奖池", small: "轻量奖池", detail: "查看场次",
+  live: "链上奖池", empty: "暂无可读取的奖池", emptyDesc: "当前网络暂未返回场次。你可以刷新，或查看参与规则。",
+  loading: "正在读取链上奖池", loadingDesc: "首次读取链上历史可能需要一点时间。", refresh: "刷新奖池",
+  fairnessTitle: "每一份参与，都有迹可循。", fairnessIntro: "参与前看清规则，开奖后查看链上记录。",
+  ruleA: "确认你的参与", ruleAText: "查看本局币种、单份价格、剩余份额及截止时间，再由钱包确认交易。",
+  ruleB: "了解开奖条件", ruleBText: "购票结束不等于立即开奖。创建者需按本局规则提交揭示数据；未售罄和超时分别进入对应结算流程。",
+  ruleC: "查看资金去向", ruleCText: "场次详情提供链上记录。奖金或退款记入合约余额后，可在资产页查看并提现。",
+  poolNote: "展示为总募集额，实际奖金以本局合约结算为准。",
+  previewTitle: "参与效果预览", previewNote: "这是一笔示例参与，不会连接钱包或发送交易。",
+  quantity: "参与份数", total: "合计", previewConfirm: "预览确认效果", previewSuccess: "参与流程预览完成",
+  previewSuccessText: "实际参与时，交易需经钱包确认并等待链上确认。此预览未产生交易。",
+  done: "知道了", back: "返回", full: "已售罄", settled: "已结算", revealing: "等待结算",
+  history: "开奖记录", account: "我的参与", network: "网络", all: "查看全部", settingsClose: "关闭设置",
+  previewMode: "效果预览", realMode: "查看链上数据", how: "参与说明", networkHint: "网络选择与钱包网络需保持一致。",
+  footer: "One Tap · 简单参与，规则透明", mainnet: "主网", testnet: "测试网",
+  readFailed: "链上数据暂时无法读取", rateLimited: "节点请求受限，已尝试备用节点。请稍后重试。", readTimeout: "节点响应超时，请稍后重试。", readUnavailable: "当前节点暂不可用，请重试或在网络设置中更换节点。",
+  partialTitle: "最近区间暂未找到奖池", partialNote: "历史尚未读完，可继续查找更早场次。", scanProgress: "已扫描 {n} 个区块", loadOlder: "读取更早场次", loadWinners: "读取开奖记录", winnersDeferred: "按需读取链上开奖记录。", olderWinners: "读取更早开奖记录", partialWinners: "当前查询区间暂无开奖记录，可继续向前查询。", cachedNote: "已显示的场次来自最近一次成功读取。",
+
+}
+type Copy = typeof zh
+const en: Copy = {
+  pools: "Pools", entries: "Entries", assets: "Assets", fairness: "Fairness", connect: "Connect wallet",
+  themeOne: "Theme one", themeTwo: "Theme two", themeSwitch: "Switch theme", settings: "Appearance & network",
+  headlineA: "A little tap.", headlineB: "A new possibility", darkA: "A little tap,", darkB: "a new possibility.",
+  tagline: "Small entries. More possibilities.", featured: "Featured pool", sample: "Sample data", each: "Per entry",
+  sold: "Entries sold", remaining: "Remaining", shares: "entries", unit: "entry", deadline: "Entry closes", starts: "Starts in",
+  enter: "Enter pool", rules: "View rules", more: "More pools", small: "Starter pool", detail: "View session",
+  live: "Onchain pools", empty: "No pools available", emptyDesc: "This network has not returned any sessions. Refresh or explore the rules.",
+  loading: "Reading onchain pools", loadingDesc: "The first historical lookup may take a moment.", refresh: "Refresh pools",
+  fairnessTitle: "Every entry leaves a trace.", fairnessIntro: "Understand the rules. Verify the onchain records.",
+  ruleA: "Confirm your entry", ruleAText: "Check the token, price, available entries and deadline before confirming a transaction in your wallet.",
+  ruleB: "Know how settlement works", ruleBText: "Closing time is not draw time. The creator must reveal according to the session rules. Unsold and overdue sessions follow their own settlement paths.",
+  ruleC: "Follow your funds", ruleCText: "Session details link to onchain records. View and withdraw credited rewards or refunds from Assets.",
+  poolNote: "Total contributions shown. Final rewards follow the session contract.",
+  previewTitle: "Entry preview", previewNote: "Sample entry only. No wallet connection or transaction will be sent.",
+  quantity: "Entries", total: "Total", previewConfirm: "Preview confirmation", previewSuccess: "Entry preview complete",
+  previewSuccessText: "Real entries require wallet approval and onchain confirmation. This preview did not create a transaction.",
+  done: "Got it", back: "Back", full: "Sold out", settled: "Settled", revealing: "Awaiting settlement",
+  history: "Draw history", account: "My entries", network: "Network", all: "View all", settingsClose: "Close settings",
+  previewMode: "Design preview", realMode: "View onchain data", how: "How it works", networkHint: "The selected network must match your wallet network.",
+  footer: "One Tap · Simple entries. Transparent rules.", mainnet: "Mainnet", testnet: "Testnet",
+  readFailed: "Unable to read onchain data", rateLimited: "RPC rate limit reached. Fallback nodes were tried. Retry shortly.", readTimeout: "RPC request timed out. Please retry shortly.", readUnavailable: "RPC nodes are unavailable. Retry or choose another node in settings.",
+  partialTitle: "No pools in the latest range", partialNote: "History is incomplete. Continue to find older sessions.", scanProgress: "Scanned {n} blocks", loadOlder: "Load older sessions", loadWinners: "Load draw history", winnersDeferred: "Read onchain draw history on demand.", olderWinners: "Load older draws", partialWinners: "No draws in this range. Continue searching older blocks.", cachedNote: "Displayed sessions are from the last successful read.",
+
+}
+const vi: Copy = {
+  pools: "Quỹ thưởng", entries: "Tham gia", assets: "Tài sản", fairness: "Công bằng", connect: "Kết nối ví",
+  themeOne: "Giao diện 1", themeTwo: "Giao diện 2", themeSwitch: "Đổi giao diện", settings: "Giao diện & mạng",
+  headlineA: "Hôm nay,", headlineB: "chạm vào bất ngờ", darkA: "Chạm nhẹ,", darkB: "tham gia ngay.", tagline: "Tham gia nhỏ, thêm cơ hội.",
+  featured: "Quỹ thưởng kỳ này", sample: "Dữ liệu mẫu", each: "Mỗi lượt", sold: "Đã bán", remaining: "Còn lại", shares: "lượt", unit: "lượt",
+  deadline: "Kết thúc tham gia", starts: "Bắt đầu sau", enter: "Tham gia ngay", rules: "Xem quy tắc", more: "Quỹ thưởng khác", small: "Quỹ thưởng nhỏ", detail: "Xem phiên",
+  live: "Quỹ thưởng trên chuỗi", empty: "Chưa có quỹ thưởng", emptyDesc: "Mạng chưa trả về phiên nào. Hãy tải lại hoặc xem quy tắc.", loading: "Đang đọc dữ liệu trên chuỗi", loadingDesc: "Lần truy vấn đầu có thể cần thêm thời gian.", refresh: "Tải lại",
+  fairnessTitle: "Mọi lượt tham gia đều có dấu vết.", fairnessIntro: "Hiểu quy tắc. Kiểm tra dữ liệu trên chuỗi.",
+  ruleA: "Xác nhận lượt tham gia", ruleAText: "Kiểm tra token, giá, số lượt còn lại và thời hạn trước khi xác nhận giao dịch trong ví.",
+  ruleB: "Hiểu điều kiện quyết toán", ruleBText: "Hết giờ không đồng nghĩa mở thưởng ngay. Người tạo cần công bố dữ liệu theo quy tắc. Phiên chưa bán hết hoặc quá hạn có quy trình quyết toán riêng.",
+  ruleC: "Theo dõi tài sản", ruleCText: "Xem dữ liệu trên chuỗi trong chi tiết phiên. Tiền thưởng hoặc hoàn tiền đã ghi có có thể rút tại mục Tài sản.",
+  poolNote: "Hiển thị tổng đóng góp. Tiền thưởng thực tế theo hợp đồng của phiên.",
+  previewTitle: "Xem trước tham gia", previewNote: "Chỉ là ví dụ. Không kết nối ví và không gửi giao dịch.", quantity: "Số lượt", total: "Tổng", previewConfirm: "Xem trước xác nhận", previewSuccess: "Đã hoàn tất xem trước", previewSuccessText: "Tham gia thật cần xác nhận trong ví và trên chuỗi. Bản xem trước này không tạo giao dịch.", done: "Đã hiểu", back: "Quay lại", full: "Đã bán hết", settled: "Đã quyết toán", revealing: "Chờ quyết toán", history: "Lịch sử", account: "Lượt của tôi", network: "Mạng", all: "Xem tất cả", settingsClose: "Đóng cài đặt", previewMode: "Xem trước", realMode: "Dữ liệu trên chuỗi", how: "Hướng dẫn", networkHint: "Mạng đã chọn cần khớp với mạng của ví.", footer: "One Tap · Tham gia đơn giản. Quy tắc minh bạch.", mainnet: "Mạng chính", testnet: "Mạng thử nghiệm",
+  readFailed: "Không thể đọc dữ liệu trên chuỗi", rateLimited: "Nút RPC giới hạn yêu cầu. Đã thử nút dự phòng. Hãy thử lại sau.", readTimeout: "Nút RPC phản hồi quá lâu. Hãy thử lại sau.", readUnavailable: "Nút RPC chưa khả dụng. Thử lại hoặc đổi nút trong cài đặt.",
+  partialTitle: "Chưa có quỹ trong khoảng gần nhất", partialNote: "Lịch sử chưa đọc hết. Có thể tìm các phiên cũ hơn.", scanProgress: "Đã quét {n} khối", loadOlder: "Đọc phiên cũ hơn", loadWinners: "Đọc lịch sử mở thưởng", winnersDeferred: "Đọc lịch sử trên chuỗi khi cần.", olderWinners: "Đọc lượt mở thưởng cũ", partialWinners: "Chưa có lượt mở thưởng trong khoảng này. Có thể tìm khối cũ hơn.", cachedNote: "Các phiên hiển thị từ lần đọc thành công gần nhất.",
+
+}
+export function getOneTapCopy(locale: Locale): Copy { return { zh, en, vi }[locale] }
