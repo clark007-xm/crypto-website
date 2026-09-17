@@ -7,12 +7,15 @@ import { ArrowLeft, Clock, ExternalLink, Ticket } from "lucide-react"
 import { ZeroAddress } from "ethers"
 import Link from "next/link"
 
+import { ChainQueryStatus } from "@/components/chain-query-status"
+import { useOneTapCopy } from "@/components/one-tap/navigation"
 import { useT } from "@/lib/i18n/context"
 import {
   getSessionPhaseState,
   SESSION_SETTLEMENT_TYPES,
   usePlayerTickets,
   useSessionInfo,
+  useSessionWinnerSelection,
 } from "@/lib/contracts/hooks"
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
 import { loadLocalSessionProductInfo } from "@/lib/local-session-product-info"
@@ -74,14 +77,16 @@ export default function SessionDetailPage() {
   const router = useRouter()
   const sessionAddress = params.address as string
   const t = useT()
+  const copy = useOneTapCopy()
   const shortAddress = `${sessionAddress.slice(0, 6)}...${sessionAddress.slice(-4)}`
   
   const {
     info: resolvedSession,
     loading: sessionLoading,
-    refresh: refreshSessionInfo,
+    refresh: refreshSessionInfo, error: sessionError,
   } = useSessionInfo(sessionAddress)
-  const { tickets: playerTicketCount, refresh: refreshPlayerTickets } = usePlayerTickets(sessionAddress)
+  const winnerQuery = useSessionWinnerSelection(sessionError ? null : resolvedSession)
+  const { tickets: playerTicketCount, refresh: refreshPlayerTickets, checked: ticketsChecked, error: ticketsError, loading: ticketsLoading } = usePlayerTickets(sessionAddress)
   const [resolvedProductInfoId, setResolvedProductInfoId] = useState(0)
   
   // Buy modal state
@@ -232,6 +237,11 @@ export default function SessionDetailPage() {
     )
   }
   
+  if (sessionError) return <main className="min-h-screen p-6"><div className="mx-auto max-w-2xl space-y-4">
+    <button className="btn btn-ghost btn-sm" onClick={handleBack}>{t.session.back}</button>
+    <ChainQueryStatus error={sessionError} loading={sessionLoading} onRefresh={refreshSessionInfo} />
+  </div></main>
+
   // Session not found
   if (!resolvedSession) {
     return (
@@ -394,7 +404,7 @@ export default function SessionDetailPage() {
               <button
                 className="btn btn-primary btn-lg w-full mt-4 gap-2"
                 onClick={() => setBuyModalOpen(true)}
-                disabled={isSoldOut}
+                disabled={isSoldOut || sessionLoading}
               >
                 <Ticket className="h-5 w-5" />
                 {isSoldOut ? t.session.allTicketsSold : t.session.buyNow}
@@ -456,17 +466,20 @@ export default function SessionDetailPage() {
               {resolvedSession.settlementType === SESSION_SETTLEMENT_TYPES.NORMAL && (
                 <>
                   <p className="mt-2 text-sm text-base-content/60">{t.session.prizeAutoSent}</p>
+                  <ChainQueryStatus error={winnerQuery.error} loading={winnerQuery.loading} onRefresh={winnerQuery.refresh}
+                    complete={Boolean(winnerQuery.winner) || winnerQuery.complete} hasMore={winnerQuery.hasMore} onLoadMore={winnerQuery.loadMore}
+                    scannedBlocks={winnerQuery.scannedBlocks} olderLabel={copy.winnerOlder} />
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <div className="rounded-2xl border border-base-content/5 bg-base-100/70 p-4">
                       <p className="text-xs text-base-content/45">{t.winners.colWinner}</p>
-                      {resolvedSession.winner !== ZeroAddress ? (
+                      {(winnerQuery.winner?.winner ?? ZeroAddress) !== ZeroAddress ? (
                         <Link
-                          href={getExplorerAddressUrl(resolvedSession.chainId, resolvedSession.winner)}
+                          href={getExplorerAddressUrl(resolvedSession.chainId, (winnerQuery.winner?.winner ?? ZeroAddress))}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="mt-1 inline-flex items-center gap-1 font-semibold text-primary"
                         >
-                          {formatShortAddress(resolvedSession.winner)}
+                          {formatShortAddress((winnerQuery.winner?.winner ?? ZeroAddress))}
                           <ExternalLink className="h-3.5 w-3.5" />
                         </Link>
                       ) : (
@@ -476,8 +489,8 @@ export default function SessionDetailPage() {
                     <div className="rounded-2xl border border-base-content/5 bg-base-100/70 p-4">
                       <p className="text-xs text-base-content/45">{t.session.winnerTicket}</p>
                       <p className="mt-1 font-semibold">
-                        {resolvedSession.winningTicketIndex !== null
-                          ? `#${resolvedSession.winningTicketIndex.toString()}`
+                        {winnerQuery.winner
+                          ? `#${winnerQuery.winner.ticketIndex.toString()}`
                           : "-"}
                       </p>
                     </div>
@@ -498,7 +511,7 @@ export default function SessionDetailPage() {
         {resolvedSession && <SessionTreasuryCard session={resolvedSession} />}
         
         {/* Creator management panel */}
-        {resolvedSession && (
+        {resolvedSession && !sessionLoading && (
           <CreatorPanel
             session={resolvedSession}
             ticketsSold={ticketsSold}
@@ -506,8 +519,9 @@ export default function SessionDetailPage() {
           />
         )}
         
+        {ticketsError && <ChainQueryStatus error={ticketsError} loading={ticketsLoading} onRefresh={refreshPlayerTickets} />}
         {/* Player claim panel - shows when unsold settlement is complete */}
-        {resolvedSession && (
+        {resolvedSession && !sessionLoading && ticketsChecked && (
           <PlayerClaimPanel 
             session={resolvedSession} 
             playerTicketCount={Number(playerTicketCount)}

@@ -2,6 +2,7 @@
 
 import { RefreshCw, ShieldAlert, WalletCards } from "lucide-react"
 import { formatEther, ZeroAddress } from "ethers"
+import { ChainQueryStatus } from "@/components/chain-query-status"
 import { TreasuryActivityList } from "@/components/treasury-activity-list"
 import {
   useSessionTreasuryInfo,
@@ -37,7 +38,7 @@ function InfoTile({ label, value }: { label: string; value: string }) {
 
 export function SessionTreasuryCard({ session }: SessionTreasuryCardProps) {
   const t = useT()
-  const { info, loading, refresh } = useSessionTreasuryInfo(
+  const { info, loading, refresh, error } = useSessionTreasuryInfo(
     session.treasury,
     session.sessionAddress,
   )
@@ -77,6 +78,7 @@ export function SessionTreasuryCard({ session }: SessionTreasuryCardProps) {
             </button>
           </div>
 
+          <ChainQueryStatus error={error} loading={loading} onRefresh={refresh} />
           {loading && !info ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="h-20 animate-pulse rounded-2xl bg-base-300/80" />
@@ -88,19 +90,19 @@ export function SessionTreasuryCard({ session }: SessionTreasuryCardProps) {
             <div className="grid gap-3 sm:grid-cols-2">
               <InfoTile
                 label={t.treasury.ticketPool}
-                value={`${formatEth(info?.playerTicketAmount ?? 0n)} ETH`}
+                value={info && !error ? `${formatEth(info.playerTicketAmount)} ETH` : "—"}
               />
               <InfoTile
                 label={t.treasury.lockedPartnerDeposit}
-                value={`${formatEth(info?.partnerDepositAmount ?? 0n)} ETH`}
+                value={info && !error ? `${formatEth(info.partnerDepositAmount)} ETH` : "—"}
               />
               <InfoTile
                 label={t.treasury.boundPartner}
-                value={shortAddress(info?.partner ?? ZeroAddress)}
+                value={info && !error ? shortAddress(info.partner) : "—"}
               />
               <InfoTile
                 label={t.treasury.registeredSession}
-                value={info?.isSession ? t.treasury.yes : t.treasury.no}
+                value={!info || error ? "—" : info.isSession ? t.treasury.yes : t.treasury.no}
               />
             </div>
           )}

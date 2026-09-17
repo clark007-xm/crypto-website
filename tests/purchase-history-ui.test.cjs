@@ -19,6 +19,9 @@ let connected = true;
 const originalLoad = Module._load;
 Module._load = function(request, parent, isMain) {
   if (request === '@/lib/contracts/hooks') return { useAllPurchaseHistory: () => state,
+    useSessionInfo: () => ({info:null,loading:false,error:'rate-limit',refresh(){}}),
+    useSessionWinnerSelection: () => ({winner:null,logs:[],loading:false,error:null,complete:false,hasMore:false,refresh(){},loadMore(){}}),
+    usePlayerTickets: () => ({tickets:0n,checked:false,loading:false,error:null,refresh(){}}),
     useTreasuryBalance: () => ({balance:0n,loading:false,checked:false,error:'rate-limit',refresh(){}}),
     usePartnerDeposit: () => ({balance:0n,requiredDeposit:1n,loading:false,checked:false,refresh(){}}),
     useIsPartner: () => ({isPartner:false,loading:false,checked:false,error:null,refresh(){}}),
@@ -26,6 +29,7 @@ Module._load = function(request, parent, isMain) {
     useWithdrawFromTreasury: () => ({withdraw(){},loading:false,error:null}),
     useDepositToTreasury: () => ({deposit(){},loading:false,error:null}),
   };
+  if (request === 'next/navigation') return {useParams:()=>({address:'0x'+'1'.repeat(40)}),useRouter:()=>({push(){},back(){}})};
   if (request === '@/components/transaction-flow-provider') return {useTransactionFlow:()=>({})};
   if (request === '@/lib/wallet/context') return { useWallet: () => ({ status: connected ? 'connected' : 'disconnected', address: null }) };
   if (request === '@/lib/rpc/context') return { useRpc: () => ({ chain: 'sepolia' }) };
@@ -34,8 +38,8 @@ Module._load = function(request, parent, isMain) {
   if (request.startsWith('@/')) request = path.join(__dirname, '..', request.slice(2));
   return originalLoad.call(this, request, parent, isMain);
 };
-let AllPurchaseHistory, TreasuryActivityList, TreasuryCenter;
-try { ({ AllPurchaseHistory } = require('../components/all-purchase-history.tsx')); ({ TreasuryActivityList } = require('../components/treasury-activity-list.tsx')); ({ TreasuryCenter } = require('../components/treasury-center.tsx')); }
+let AllPurchaseHistory, TreasuryActivityList, TreasuryCenter, SessionDetailPage;
+try { ({ AllPurchaseHistory } = require('../components/all-purchase-history.tsx')); ({ TreasuryActivityList } = require('../components/treasury-activity-list.tsx')); ({ TreasuryCenter } = require('../components/treasury-center.tsx')); SessionDetailPage=require('../app/session/[address]/page.tsx').default; }
 finally { Module._load = originalLoad; }
 function render(overrides = {}) {
   state = { records: [], loading: false, error: null, complete: false, scannedBlocks: 54000,
@@ -100,4 +104,8 @@ test('Treasury partial history offers continuation and only complete history can
 
 test('unreadable Treasury balance shows unknown, not a verified zero or no-balance message',()=>{
  const html=renderToStaticMarkup(React.createElement(TreasuryCenter));assert.ok(html.includes(copy.rateLimited));assert.ok(html.includes('—'));assert.ok(!html.includes(zh.treasury.noBalance));
+});
+
+test('detail state failure displays retry instead of not-found or fabricated session phase',()=>{
+ const html=renderToStaticMarkup(React.createElement(SessionDetailPage));assert.ok(html.includes(copy.rateLimited));assert.ok(html.includes(copy.retryRead));assert.ok(!html.includes(zh.session.notFound));assert.ok(!html.includes(zh.session.waitingReveal));
 });

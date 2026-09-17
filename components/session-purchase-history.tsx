@@ -1,8 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useRef } from "react"
 import { Check, Copy, ExternalLink, Eye, EyeOff, History, ShieldAlert, ShieldCheck, Ticket } from "lucide-react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { ChainQueryStatus } from "@/components/chain-query-status"
+import { useOneTapCopy } from "@/components/one-tap/navigation"
 import { useT } from "@/lib/i18n/context"
 import { getExplorerTxUrl } from "@/lib/contracts/addresses"
 import {
@@ -29,10 +31,12 @@ export function SessionPurchaseHistory({
   refreshNonce = 0,
 }: SessionPurchaseHistoryProps) {
   const t = useT()
+  const copy = useOneTapCopy()
+  const lastRefreshNonce = useRef(refreshNonce)
   const { status, address } = useWallet()
   const [historyEnabled, setHistoryEnabled] = useState(false)
-  const { records, loading, refresh } = useSessionPurchaseHistory(
-    historyEnabled ? session.sessionAddress : null
+  const { records, loading, refresh, error, complete, hasMore, scannedBlocks, updatedAt, loadMore } = useSessionPurchaseHistory(
+    historyEnabled ? session.sessionAddress : null, session.creationBlock, session.creationBlockHash
   )
   const [localRecords, setLocalRecords] = useState<LocalPurchaseRecord[]>([])
   const [revealedSecrets, setRevealedSecrets] = useState<Record<string, boolean>>({})
@@ -54,9 +58,9 @@ export function SessionPurchaseHistory({
   }, [address, historyEnabled, refreshNonce, session.sessionAddress])
 
   useEffect(() => {
-    if (historyEnabled && status === "connected") {
-      void refresh()
-    }
+    if (refreshNonce === lastRefreshNonce.current) return
+    lastRefreshNonce.current = refreshNonce
+    if (historyEnabled && status === "connected") void refresh()
   }, [historyEnabled, refresh, refreshNonce, status])
 
   const mergedRecords = useMemo(
@@ -186,6 +190,9 @@ export function SessionPurchaseHistory({
           </div>
         </div>
 
+        <ChainQueryStatus error={error} loading={loading} onRefresh={refresh} complete={complete} hasMore={hasMore}
+          scannedBlocks={scannedBlocks} updatedAt={updatedAt} onLoadMore={loadMore} olderLabel={copy.recordsOlder} />
+        {!complete && <p className="text-xs text-base-content/60">{copy.recordsPartial}</p>}
         {loading && !hasVisibleRecords && (
           <div className="flex items-center justify-center py-8">
             <span className="loading loading-spinner loading-md text-primary" />
@@ -262,7 +269,7 @@ export function SessionPurchaseHistory({
           </div>
         )}
 
-        {!loading && !hasVisibleRecords && (
+        {!loading && !error && complete && !hasVisibleRecords && (
           <div className="rounded-2xl border border-dashed border-base-content/15 bg-base-100/60 px-4 py-8 text-center">
             <p className="font-semibold text-base-content/70">{t.session.noPurchaseHistory}</p>
             <p className="mt-2 text-sm text-base-content/45">{t.session.noPurchaseHistoryDesc}</p>

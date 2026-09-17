@@ -5,6 +5,7 @@ import dynamic from "next/dynamic"
 import { X, Eye, EyeOff, Copy, RefreshCw, Ticket, Loader2, Check } from "lucide-react"
 import { hexlify, randomBytes, keccak256, toUtf8Bytes, ZeroAddress } from "ethers"
 import { useTransactionFlow } from "@/components/transaction-flow-provider"
+import { ChainQueryStatus } from "@/components/chain-query-status"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import { getSessionPhaseState, useBuyTickets, useSessionInfo } from "@/lib/contracts/hooks"
@@ -34,7 +35,7 @@ export function BuyModal({
   const { status, address, shortAddress, chainId } = useWallet()
   const transactionFlow = useTransactionFlow()
   const { buyTickets, loading: buyLoading, error: buyError } = useBuyTickets()
-  const { info: sessionInfo } = useSessionInfo(isOpen ? session.sessionAddress : null)
+  const { info: sessionInfo, error: sessionReadError, loading: sessionReading, refresh: refreshSessionRead } = useSessionInfo(isOpen ? session.sessionAddress : null)
   const resolvedSession = useMemo(() => {
     if (!sessionInfo) return session
 
@@ -163,6 +164,7 @@ export function BuyModal({
   
   // Handle buy
   const handleBuy = async () => {
+    if (sessionReadError || sessionReading || !sessionInfo) return
     if (status !== "connected") {
       setConnectModalOpen(true)
       return
@@ -468,6 +470,7 @@ export function BuyModal({
             </div>
             
             {/* Error message */}
+            <ChainQueryStatus error={sessionReadError} loading={sessionReading} onRefresh={refreshSessionRead} />
             {buyError && (
               <div className="alert alert-error py-2">
                 <span className="text-sm">{buyError}</span>
@@ -489,6 +492,7 @@ export function BuyModal({
               className="btn btn-primary btn-block gap-2"
               onClick={handleBuy}
               disabled={
+                Boolean(sessionReadError) || sessionReading || !sessionInfo ||
                 buyLoading ||
                 !secret ||
                 !commitment ||
