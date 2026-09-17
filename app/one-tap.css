@@ -156,6 +156,13 @@ body { background: var(--ot-bg); color: var(--ot-ink); }
 .ot-setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0; border-top: 1px solid var(--ot-line); font-size: 14px; }
 .ot-setting-note { display: flex; gap: 8px; font-size: 12px; line-height: 1.6; margin-top: 10px; }
 .ot-setting-note svg { flex-shrink: 0; margin-top: 2px; }
+@media (min-width: 640px) {
+  .ot-setting-network { display: grid; grid-template-columns: auto minmax(0, 1fr); }
+  .ot-node-selector-inline { display: contents; }
+  .ot-node-selector-inline .ot-node-trigger { width: 100%; height: auto; min-height: 36px; justify-content: flex-end; flex-wrap: nowrap; padding: 8px; }
+  .ot-node-selector-inline .ot-node-status { min-width: 0; max-width: none; white-space: normal; overflow: visible; overflow-wrap: anywhere; text-align: right; }
+  .ot-node-selector-inline .ot-node-panel { grid-column: 1 / -1; min-width: 0; width: 100%; }
+}
 .ot-preview-notice { color: var(--ot-muted); background: var(--ot-surface); border-radius: 10px; padding: 16px; font-size: 14px; line-height: 1.7; margin-bottom: 22px; }
 .ot-stepper { display: flex; align-items: center; border: 1px solid var(--ot-line); border-radius: 10px; overflow: hidden; }
 .ot-stepper button { display: grid; place-items: center; width: 42px; height: 44px; }

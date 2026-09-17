@@ -3,6 +3,15 @@ import { AlertCircle, RefreshCw } from "lucide-react"
 import type { ReadErrorKind } from "@/lib/rpc/read-client"
 import { useOneTapCopy } from "./navigation"
 
+export function ChainCacheStatus({ updatedAt, cached, loading }: { updatedAt: number; cached: boolean; loading: boolean }) {
+  const copy = useOneTapCopy()
+  if (!updatedAt) return null
+  return <p className="ot-muted text-xs" aria-live="polite">
+    {cached && <>{copy.cachedData} · </>}{copy.lastUpdated.replace("{time}", new Date(updatedAt).toLocaleString())}
+    {loading && <> · {copy.syncing}</>}
+  </p>
+}
+
 export function ChainReadStatus({ error, loading, complete, scannedBlocks, hasMore, refresh, loadMore }: {
   error: ReadErrorKind | null; loading: boolean; complete: boolean; scannedBlocks: number; hasMore: boolean
   refresh: () => void; loadMore: () => void

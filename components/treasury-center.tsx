@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle, RefreshCw, ShieldAlert, Wallet } from "luci
 import { formatEther, parseEther } from "ethers"
 import { useTransactionFlow } from "@/components/transaction-flow-provider"
 import { TreasuryActivityList } from "@/components/treasury-activity-list"
+import { useOneTapCopy } from "@/components/one-tap/navigation"
 import { useT } from "@/lib/i18n/context"
 import {
   useDepositToTreasury,
@@ -25,15 +26,16 @@ function formatEth(value: bigint) {
 
 export function TreasuryCenter() {
   const t = useT()
+  const copy = useOneTapCopy()
   const { status, address, shortAddress, chainId } = useWallet()
   const transactionFlow = useTransactionFlow()
-  const { balance, loading, checked, refresh } = useTreasuryBalance()
+  const { balance, loading, checked, refresh, error: balanceError } = useTreasuryBalance()
   const { withdraw, loading: withdrawing, error } = useWithdrawFromTreasury()
-  const { isPartner, loading: partnerLoading, checked: partnerChecked } = useIsPartner()
+  const { isPartner, loading: partnerLoading, checked: partnerChecked, error: partnerError, refresh: refreshPartner } = useIsPartner()
   const {
     balance: partnerDepositBalance,
     requiredDeposit,
-    loading: partnerDepositLoading,
+    loading: partnerDepositLoading, checked: partnerDepositChecked,
     refresh: refreshPartnerDeposit,
   } = usePartnerDeposit()
   const { deposit, loading: depositing, error: depositError } = useDepositToTreasury()
@@ -41,6 +43,8 @@ export function TreasuryCenter() {
     records: activityRecords,
     loading: activityLoading,
     refresh: refreshActivity,
+    error: activityError, complete: activityComplete, hasMore: activityHasMore,
+    scannedBlocks: activityScannedBlocks, updatedAt: activityUpdatedAt, loadMore: loadMoreActivity,
   } = useTreasuryActivity({ enabled: status === "connected", limit: 24 })
   const [amount, setAmount] = useState("")
   const [depositAmount, setDepositAmount] = useState("")
@@ -64,6 +68,7 @@ export function TreasuryCenter() {
 
   const canWithdraw =
     status === "connected" &&
+    checked && !loading &&
     parsedAmount !== null &&
     parsedAmount > 0n &&
     parsedAmount <= balance &&
@@ -140,7 +145,7 @@ export function TreasuryCenter() {
             </div>
             <button
               className="btn btn-ghost btn-sm gap-2"
-              onClick={() => void refresh()}
+              onClick={() => { void refresh(); void refreshPartner(); }}
               disabled={loading || status !== "connected"}
             >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -154,12 +159,13 @@ export function TreasuryCenter() {
             </div>
           ) : (
             <>
+              {(balanceError || partnerError) && <p role="alert" className="text-sm text-error">{balanceError === "rate-limit" || partnerError === "rate-limit" ? copy.rateLimited : copy.readUnavailable}</p>}
               <div className="rounded-3xl border border-primary/10 bg-primary/10 p-6">
                 <p className="text-sm font-medium text-base-content/60">
                   {t.treasury.availableBalance}
                 </p>
                 <p className="mt-2 font-display text-4xl font-bold text-primary sm:text-5xl">
-                  {loading && !checked ? "..." : formatEth(balance)}
+                  {!checked ? loading ? "..." : "—" : formatEth(balance)}
                   <span className="ml-2 text-base font-semibold text-base-content/50">ETH</span>
                 </p>
                 <p className="mt-3 text-sm text-base-content/55">
@@ -185,14 +191,14 @@ export function TreasuryCenter() {
                       type="button"
                       className="btn join-item"
                       onClick={() => setAmount(formatEther(balance))}
-                      disabled={balance <= 0n}
+                      disabled={!checked || loading || balance <= 0n}
                     >
                       {t.treasury.withdrawAll}
                     </button>
                   </div>
                 </label>
 
-                {balance <= 0n && (
+                {checked && balance <= 0n && (
                   <div className="alert alert-info mt-4 py-3">
                     <span className="text-sm">{t.treasury.noBalance}</span>
                   </div>
@@ -255,7 +261,7 @@ export function TreasuryCenter() {
                         {t.treasury.availablePartnerDeposit}
                       </p>
                       <p className="mt-1 font-display text-xl font-bold text-secondary">
-                        {partnerDepositLoading ? "..." : formatEth(partnerDepositBalance)} ETH
+                        {!partnerDepositChecked ? partnerDepositLoading ? "..." : "—" : formatEth(partnerDepositBalance)} ETH
                       </p>
                     </div>
                     <div className="rounded-2xl border border-base-content/5 bg-base-100/70 p-4">
@@ -338,6 +344,8 @@ export function TreasuryCenter() {
           description={t.treasury.activityDesc}
           records={activityRecords}
           loading={activityLoading}
+          error={activityError} complete={activityComplete} hasMore={activityHasMore}
+          scannedBlocks={activityScannedBlocks} updatedAt={activityUpdatedAt} onLoadMore={loadMoreActivity}
           onRefresh={() => void refreshActivity()}
         />
       )}

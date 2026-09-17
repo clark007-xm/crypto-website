@@ -3,12 +3,12 @@ import { ChainReadError, type IndexedLog, type LogReader, type ReadErrorKind } f
 type Range = [number, number]
 export interface IndexSnapshot {
   logs: IndexedLog[]; ranges: Range[]; head: number | null; loading: boolean
-  error: ReadErrorKind | null; updatedAt: number; complete: boolean; scannedBlocks: number
+  error: ReadErrorKind | null; updatedAt: number; complete: boolean; scannedBlocks: number; hydrated: boolean
 }
 export const EMPTY_INDEX: IndexSnapshot = {
-  logs: [], ranges: [], head: null, loading: false, error: null, updatedAt: 0, complete: false, scannedBlocks: 0,
+  logs: [], ranges: [], head: null, loading: false, error: null, updatedAt: 0, complete: false, scannedBlocks: 0, hydrated: false,
 }
-export interface IndexStorage { getItem(key: string): string | null; setItem(key: string, value: string): void }
+export interface IndexStorage { getItem(key: string): string | null | Promise<string | null>; setItem(key: string, value: string): void | Promise<void> }
 function mergeRanges(ranges: Range[]): Range[] {
   const merged: Range[] = []
   for (const [from, to] of [...ranges].sort((a, b) => a[0] - b[0])) {
@@ -35,10 +35,20 @@ export class SessionLogIndex {
   private flight: Promise<void> | null = null
   private seeded = false
   readonly key: string
-  constructor(readonly chainId: number, readonly factory: string, readonly deployBlock: number, private storage?: IndexStorage) {
-    this.key = `onetap:session-index:v1:${chainId}:${factory.toLowerCase()}:${deployBlock}`
-    this.restore()
+  readonly ready: Promise<void>
+  constructor(readonly chainId: number, readonly factory: string, readonly deployBlock: number, private storage?: IndexStorage,
+    private options: { cacheKey?: string; acceptLog?: (log: IndexedLog) => boolean } = {}) {
+    this.key = options.cacheKey ?? `onetap:session-index:v1:${chainId}:${factory.toLowerCase()}:${deployBlock}`
+    try {
+      const raw = storage?.getItem(this.key) ?? null
+      if (raw && typeof raw !== "string") {
+        this.ready = raw.then(value => this.restore(value)).catch(() => {}).finally(() => this.publish({ hydrated: true }))
+      } else {
+        this.restore(raw); this.publish({ hydrated: true }); this.ready = Promise.resolve()
+      }
+    } catch { this.publish({ hydrated: true }); this.ready = Promise.resolve() }
   }
+  whenIdle = () => this.flight ?? Promise.resolve()
   snapshot = () => this.state
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private publish(patch: Partial<IndexSnapshot>) {
@@ -50,13 +60,13 @@ export class SessionLogIndex {
   }
   private persist() {
     try {
-      const payload = JSON.stringify({ version: 1, head: this.state.head, ranges: this.state.ranges, logs: this.state.logs, seeded: this.seeded })
-      if (payload.length <= 2_000_000) this.storage?.setItem(this.key, payload)
+      const logs = this.state.logs.filter(log => this.state.ranges.some(([a, b]) => log.blockNumber >= a && log.blockNumber <= b))
+      const payload = JSON.stringify({ version: 1, head: this.state.head, ranges: this.state.ranges, logs, seeded: this.seeded, updatedAt: this.state.updatedAt })
+      if (payload.length <= 2_000_000) void Promise.resolve(this.storage?.setItem(this.key, payload)).catch(() => {})
     } catch { /* Full/disabled storage must not block live reads. */ }
   }
-  private restore() {
+  private restore(raw: string | null) {
     try {
-      const raw = this.storage?.getItem(this.key)
       if (!raw || raw.length > 2_000_000) return
       const cached = JSON.parse(raw)
       if (cached.version !== 1 || !Number.isSafeInteger(cached.head) || cached.head < this.deployBlock ||
@@ -68,8 +78,9 @@ export class SessionLogIndex {
         log.address.toLowerCase() === this.factory.toLowerCase() && Number.isSafeInteger(log.blockNumber) &&
         Number.isSafeInteger(log.index) && log.index >= 0 && ranges.some(([a, b]) => log.blockNumber >= a && log.blockNumber <= b) &&
         /^0x[\da-f]{64}$/i.test(log.blockHash) && /^0x[\da-f]{64}$/i.test(log.transactionHash) &&
-        /^0x[\da-f]*$/i.test(log.data) && Array.isArray(log.topics) && log.topics.every(t => /^0x[\da-f]{64}$/i.test(t)))) return
-      this.publish({ head: cached.head, ranges, logs: cached.logs })
+        /^0x[\da-f]*$/i.test(log.data) && Array.isArray(log.topics) && log.topics.every(t => /^0x[\da-f]{64}$/i.test(t)) &&
+        (!this.options.acceptLog || this.options.acceptLog(log)))) return
+      this.publish({ head: cached.head, ranges, logs: cached.logs, updatedAt: Number.isSafeInteger(cached.updatedAt) && cached.updatedAt <= Date.now() ? cached.updatedAt : 0 })
       this.seeded = cached.seeded === true
     } catch { /* Ignore stale/corrupt cache. */ }
   }
@@ -87,6 +98,7 @@ export class SessionLogIndex {
     this.persist()
   }
   private async run(reader: LogReader, options: { revalidate?: boolean; maxRanges?: number; shouldContinue?: () => boolean }) {
+    await this.ready
     const canContinue = () => !options.shouldContinue || options.shouldContinue() || this.listeners.size > 0
     this.publish({ loading: true, error: null })
     try {
@@ -95,7 +107,8 @@ export class SessionLogIndex {
       // Re-read the last 64 blocks (and discard future blocks after a rollback).
       const boundary = options.revalidate === false ? head + 1 : Math.max(this.deployBlock, Math.min(this.state.head ?? head, head) - 63)
       const ranges = this.state.ranges.filter(([a]) => a < boundary).map(([a, b]) => [a, Math.min(b, boundary - 1)] as Range)
-      this.publish({ head, ranges, logs: this.state.logs.filter(log => log.blockNumber < boundary) })
+      // Retain previously read data during revalidation. Successful ranges replace it atomically.
+      this.publish({ head, ranges, logs: this.state.logs.filter(log => log.blockNumber <= head) })
       for (let i = 0; i < (options.maxRanges ?? 6); i++) {
         if (!canContinue()) break
         const range = missingRange(this.state.ranges, this.deployBlock, head, 9000)
@@ -118,6 +131,7 @@ export class SessionLogIndex {
         this.persist()
       }
       this.publish({ updatedAt: Date.now() })
+      this.persist()
     } catch (error) {
       this.publish({ error: error instanceof ChainReadError ? error.kind : "unavailable" })
     } finally { this.publish({ loading: false }) }

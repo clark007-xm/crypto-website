@@ -1,5 +1,7 @@
 "use client";
 
+import { verifiedDeploymentBlock } from "./verified-deployments";
+
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   Contract,
@@ -12,8 +14,13 @@ import type { ContractTransactionResponse, Log } from "ethers";
 import { useWallet } from "@/lib/wallet/context";
 import { useRpc } from "@/lib/rpc/context";
 import { CHAINS, getNodesByChain } from "@/lib/rpc/nodes";
-import { ChainReadClient, ChainReadError, type ReadErrorKind } from "@/lib/rpc/read-client";
+import { ChainReadClient, ChainReadError, type ReadErrorKind, type IndexedLog } from "@/lib/rpc/read-client";
+import { SharedRead } from "@/lib/rpc/shared-read";
+import { createTreasuryLogReader, acceptsTreasuryLog } from "./treasury-log-reader";
 import { SessionLogIndex, EMPTY_INDEX } from "./log-index";
+import { getBrowserIndexStorage } from "./browser-index-storage";
+import { PurchaseHistoryIndex, EMPTY_PURCHASE } from "./purchase-history-index";
+import { readSessionStatus, writeSessionStatus } from "./session-status-cache";
 import type { TransactionLifecycleCallbacks } from "@/lib/transactions/types";
 import { buildCreatorRevealPayload } from "@/lib/creator-session-secret";
 import { getReadableContractErrorMessage } from "./errors";
@@ -532,142 +539,70 @@ export function useTreasuryContract() {
   }, [readProvider, chainId]);
 }
 
+const ACCOUNT_READS = new WeakMap<ChainReadClient, Map<string, SharedRead<bigint | boolean>>>();
+const EMPTY_ACCOUNT_READ = { value: null, loading: false, error: null, updatedAt: 0 };
+
+function useChainReadClient() {
+  const { chain, activeNode } = useRpc();
+  const chainId = CHAINS[chain].numericId;
+  return useMemo(() => {
+    const key = `${chainId}:${activeNode.id}`;
+    let client = INDEX_READERS.get(key);
+    if (!client) {
+      const nodes = [...getNodesByChain(chain)].sort((a, b) => Number(b.id === activeNode.id) - Number(a.id === activeNode.id));
+      client = new ChainReadClient(chainId, nodes.map(node => node.url));
+      INDEX_READERS.set(key, client);
+    }
+    return client;
+  }, [chain, chainId, activeNode.id]);
+}
+
+function useAccountRead(method: "balances" | "isPartner") {
+  const { address, chainId, status } = useWallet();
+  const client = useChainReadClient();
+  const enabled = status === "connected" && Boolean(address) && chainId === client.chainId && hasDeployedContracts(client.chainId);
+  const addresses = getAddresses(client.chainId);
+  const target = method === "balances" ? addresses.treasury : addresses.factory;
+  const resource = useMemo(() => {
+    const key = `${target.toLowerCase()}:${address?.toLowerCase() ?? ""}:${method}`;
+    let entries = ACCOUNT_READS.get(client);
+    if (!entries) { entries = new Map(); ACCOUNT_READS.set(client, entries); }
+    let value = entries.get(key);
+    if (!value) {
+      value = new SharedRead<bigint | boolean>(async signal => {
+        const iface = method === "balances" ? TREASURY_INTERFACE : new Interface(FACTORY_ABI);
+        const raw = await client.send<string>("eth_call", [{ to: target, data: iface.encodeFunctionData(method, [address]) }, "latest"], signal);
+        return iface.decodeFunctionResult(method, raw)[0] as bigint | boolean;
+      });
+      entries.set(key, value);
+    }
+    return value;
+  }, [client, target, address, method]);
+  const snapshot = useSyncExternalStore(resource.subscribe, resource.snapshot, () => EMPTY_ACCOUNT_READ);
+  useEffect(() => { if (enabled) return resource.acquire(); }, [resource, enabled]);
+  const refresh = useCallback(async () => { if (enabled) await resource.refresh(); }, [enabled, resource]);
+  return { ...(enabled ? snapshot : EMPTY_ACCOUNT_READ), refresh };
+}
+
 export interface TreasuryBalanceState {
   balance: bigint;
   loading: boolean;
   checked: boolean;
+  error: ReadErrorKind | null;
   refresh: () => Promise<void>;
 }
 
-/**
- * Get the connected wallet's available Treasury balance.
- * This is the withdrawable ledger balance used for refunds, payouts and partner funds.
- */
 export function useTreasuryBalance(): TreasuryBalanceState {
-  const { address, chainId, status } = useWallet();
-  const treasury = useTreasuryContract();
-  const [balance, setBalance] = useState<bigint>(0n);
-  const [loading, setLoading] = useState(false);
-  const [checked, setChecked] = useState(false);
-  const lastCheckKey = useRef<string | null>(null);
-
-  const treasuryRef = useRef(treasury);
-  treasuryRef.current = treasury;
-
-  const refresh = useCallback(async () => {
-    const currentTreasury = treasuryRef.current;
-    if (!address || !currentTreasury || !chainId) {
-      setBalance(0n);
-      setChecked(false);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const bal = (await currentTreasury.balances(address)) as bigint;
-      setBalance(bal);
-      setChecked(true);
-      lastCheckKey.current = `${address}-${chainId}`;
-    } catch {
-      setBalance(0n);
-      setChecked(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [address, chainId]);
-
-  useEffect(() => {
-    if (status !== "connected") {
-      setBalance(0n);
-      setChecked(false);
-      lastCheckKey.current = null;
-      return;
-    }
-
-    if (!treasury) {
-      setChecked(false);
-      return;
-    }
-
-    const key = address && chainId ? `${address}-${chainId}` : null;
-    if (key && lastCheckKey.current !== key) {
-      refresh();
-    }
-  }, [address, chainId, refresh, status, treasury]);
-
-  return { balance, loading, checked, refresh };
+  const state = useAccountRead("balances");
+  return { balance: typeof state.value === "bigint" ? state.value : 0n, loading: state.loading,
+    checked: state.value !== null && !state.error, error: state.error, refresh: state.refresh };
 }
 
-/**
- * Get partner's deposit balance in Treasury
- */
 export function usePartnerDeposit(requiredDepositWei = REQUIRED_PARTNER_DEPOSIT) {
-  const { address, chainId, status } = useWallet();
-  const treasury = useTreasuryContract();
-  const [balance, setBalance] = useState<bigint>(0n);
-  const [loading, setLoading] = useState(false);
-  const [checked, setChecked] = useState(false);
-  const lastCheckKey = useRef<string | null>(null);
-
-  const treasuryRef = useRef(treasury);
-  treasuryRef.current = treasury;
-
-  const refresh = useCallback(async () => {
-    const currentTreasury = treasuryRef.current;
-    if (!address || !currentTreasury || !chainId) {
-      setBalance(0n);
-      setChecked(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const bal = (await currentTreasury.balances(address)) as bigint;
-      setBalance(bal);
-      setChecked(true);
-      lastCheckKey.current = `${address}-${chainId}-${requiredDepositWei.toString()}`;
-    } catch {
-      setBalance(0n);
-      setChecked(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [address, chainId, requiredDepositWei]);
-
-  useEffect(() => {
-    if (status !== "connected") {
-      setBalance(0n);
-      setChecked(false);
-      lastCheckKey.current = null;
-      return;
-    }
-
-    if (!treasury) {
-      setChecked(false);
-      return;
-    }
-
-    const key =
-      address && chainId
-        ? `${address}-${chainId}-${requiredDepositWei.toString()}`
-        : null;
-    if (key && lastCheckKey.current !== key) {
-      refresh();
-    }
-  }, [status, address, chainId, treasury, refresh, requiredDepositWei]);
-
-  const isInsufficient = checked && balance < requiredDepositWei;
-  const shortfall =
-    requiredDepositWei > balance ? requiredDepositWei - balance : 0n;
-
-  return {
-    balance,
-    requiredDeposit: requiredDepositWei,
-    isInsufficient,
-    shortfall,
-    loading,
-    checked,
-    refresh,
-  };
+  const state = useTreasuryBalance();
+  return { ...state, requiredDeposit: requiredDepositWei,
+    isInsufficient: state.checked && state.balance < requiredDepositWei,
+    shortfall: state.checked && requiredDepositWei > state.balance ? requiredDepositWei - state.balance : 0n };
 }
 
 /**
@@ -855,61 +790,9 @@ export function useSessionTreasuryInfo(
  * Automatically fetches when wallet connects or chainId changes.
  */
 export function useIsPartner() {
-  const { address, chainId, status } = useWallet();
-  const factory = useFactoryContract();
-  const [isPartner, setIsPartner] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [checked, setChecked] = useState(false);
-  const lastCheckKey = useRef<string | null>(null);
-
-  const checkPartner = useCallback(
-    async (factoryInstance: Contract) => {
-      if (!address || !factoryInstance || !chainId) {
-        setIsPartner(false);
-        setChecked(false);
-        return;
-      }
-      setLoading(true);
-      try {
-        const result = (await factoryInstance.isPartner(address)) as boolean;
-        setIsPartner(result);
-        setChecked(true);
-        lastCheckKey.current = `${address}-${chainId}`;
-      } catch {
-        setIsPartner(false);
-        setChecked(true);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [address, chainId],
-  );
-
-  useEffect(() => {
-    // Only check when connected and key changed
-    if (status !== "connected") {
-      setIsPartner(false);
-      setChecked(false);
-      lastCheckKey.current = null;
-      return;
-    }
-
-    if (!factory) return;
-
-    const key = address && chainId ? `${address}-${chainId}` : null;
-    if (key && lastCheckKey.current !== key) {
-      checkPartner(factory);
-    }
-  }, [status, address, chainId, factory, checkPartner]);
-
-  const refresh = useCallback(() => {
-    if (factory) {
-      lastCheckKey.current = null; // Force refresh
-      checkPartner(factory);
-    }
-  }, [factory, checkPartner]);
-
-  return { isPartner, loading, checked, refresh };
+  const state = useAccountRead("isPartner");
+  return { isPartner: state.value === true, loading: state.loading, checked: state.value !== null && !state.error,
+    error: state.error, refresh: state.refresh };
 }
 
 export interface CreateSessionConfig {
@@ -1040,6 +923,8 @@ export function useCreateSession() {
 export interface SessionCatalogFromEvent {
   chainId: number;
   sessionAddress: string;
+  creationBlock?: number;
+  creationBlockHash?: string;
   creator: string;
   admin: string;
   productInfoId: number;
@@ -1079,15 +964,11 @@ export interface PaymentTokenMetadata {
 }
 
 const SESSION_CATALOG_CACHE_TTL_MS = 30_000;
-const GLOBAL_PURCHASE_HISTORY_CACHE_TTL_MS = 15_000;
+const EMPTY_SESSION_CATALOG: SessionCatalogFromEvent[] = [];
 const PAYMENT_TOKEN_METADATA_CACHE_TTL_MS = 5 * 60_000;
 const SESSION_CATALOG_CACHE = new Map<
   number,
   TimedCacheEntry<SessionCatalogFromEvent[]>
->();
-const GLOBAL_PURCHASE_HISTORY_CACHE = new Map<
-  string,
-  TimedCacheEntry<GlobalSessionPurchaseRecord[]>
 >();
 const PAYMENT_TOKEN_METADATA_CACHE = new Map<
   string,
@@ -1243,38 +1124,38 @@ function loadIndexToken(client: ChainReadClient, token: string): Promise<Payment
   const previous = INDEX_TOKEN_CACHE.get(key);
   if (previous) return previous;
   const contract = new Contract(token, ERC20_ABI, readRunner(client));
-  const promise = Promise.all([contract.decimals(), contract.symbol()]).then(([raw, symbol]) => {
+  const promise = (async () => {
+    const storage = getBrowserIndexStorage();
+    const cacheKey = `onetap:token:v1:${key}`;
+    try {
+      const cached = JSON.parse(await storage?.getItem(cacheKey) ?? "null");
+      if (cached && Number.isSafeInteger(cached.updatedAt) && cached.updatedAt <= Date.now() && Date.now() - cached.updatedAt < 86400000 && Number.isInteger(cached.decimals) && cached.decimals >= 0 && cached.decimals <= 255 && typeof cached.symbol === "string") {
+        return { decimals: cached.decimals as number, symbol: cached.symbol as string };
+      }
+    } catch { /* optional cache */ }
+    const [raw, symbol] = await Promise.all([contract.decimals(), contract.symbol()]);
     const decimals = Number(raw);
     if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) throw new ChainReadError("invalid-response");
-    return { decimals, symbol: String(symbol) };
-  }).catch(error => { INDEX_TOKEN_CACHE.delete(key); throw error; });
+    const value = { decimals, symbol: String(symbol) };
+    void Promise.resolve(storage?.setItem(cacheKey, JSON.stringify({ ...value, updatedAt: Date.now() }))).catch(() => {});
+    return value;
+  })().catch(error => { INDEX_TOKEN_CACHE.delete(key); throw error; });
   INDEX_TOKEN_CACHE.set(key, promise);
   return promise;
 }
 
-function useSharedSessionIndex(mode: "page" | "all" = "page") {
-  const { chain, activeNode } = useRpc();
+function useSharedSessionIndex(mode: "page" | "all" = "page", enabled = true) {
+  const { chain } = useRpc();
   const [retryRevision, setRetryRevision] = useState(0);
   const activeChainId = CHAINS[chain].numericId;
   const { factory, deployBlock } = getAddresses(activeChainId);
   const deployed = hasDeployedContracts(activeChainId);
   const key = `${activeChainId}:${factory.toLowerCase()}:${deployBlock}`;
-  const client = useMemo(() => {
-    const readerKey = `${activeChainId}:${activeNode.id}`;
-    let reader = INDEX_READERS.get(readerKey);
-    if (!reader) {
-      const nodes = [...getNodesByChain(chain)].sort((a, b) => Number(b.id === activeNode.id) - Number(a.id === activeNode.id));
-      reader = new ChainReadClient(activeChainId, nodes.map(node => node.url));
-      INDEX_READERS.set(readerKey, reader);
-    }
-    return reader;
-  }, [activeChainId, chain, activeNode.id]);
+  const client = useChainReadClient();
   const index = useMemo(() => {
     let existing = SESSION_INDEXES.get(key);
     if (!existing) {
-      let storage: Storage | undefined;
-      try { if (typeof window !== "undefined") storage = window.localStorage; } catch { /* optional */ }
-      existing = new SessionLogIndex(activeChainId, factory, deployBlock, storage);
+      existing = new SessionLogIndex(activeChainId, factory, deployBlock, getBrowserIndexStorage());
       SESSION_INDEXES.set(key, existing);
     }
     return existing;
@@ -1284,6 +1165,8 @@ function useSharedSessionIndex(mode: "page" | "all" = "page") {
     getBlockNumber: () => client.getBlockNumber(),
     getLogs: (from: number, to: number) => client.getLogs(factory, [SESSION_TOPICS], from, to),
     findSeedBlock: async (head: number) => {
+      const verified = verifiedDeploymentBlock(client.chainId, factory);
+      if (verified !== undefined) return Math.max(deployBlock, verified);
       const hasCode = async (block: number) => {
         const code = await client.send<string>("eth_getCode", [factory, `0x${block.toString(16)}`]);
         if (!/^0x[\da-f]*$/i.test(code)) throw new ChainReadError("invalid-response");
@@ -1301,9 +1184,11 @@ function useSharedSessionIndex(mode: "page" | "all" = "page") {
     },
   }), [client, factory, deployBlock]);
   useEffect(() => {
-    if (!deployed) return;
+    if (!deployed || !enabled) return;
     let active = true;
     async function load() {
+      await index.ready;
+      if (!active) return;
       if (Date.now() - index.snapshot().updatedAt > 15_000) {
         await index.sync(reader, { shouldContinue: () => active });
       }
@@ -1314,29 +1199,30 @@ function useSharedSessionIndex(mode: "page" | "all" = "page") {
     }
     void load();
     return () => { active = false; };
-  }, [deployed, index, reader, mode, retryRevision]);
+  }, [deployed, enabled, index, reader, mode, retryRevision]);
   const sessions = useMemo(() => snapshot.logs.flatMap(log => {
     for (const [version, iface] of [["current", CURRENT_FACTORY_INTERFACE], ["legacy", LEGACY_FACTORY_INTERFACE]] as const) {
       try {
         const event = iface.parseLog(log);
         if (!event || event.name !== "SessionCreated") continue;
-        return [buildSessionCatalogEntry(activeChainId, String(event.args[1]), event.args[2], version)];
+        return [{ ...buildSessionCatalogEntry(activeChainId, String(event.args[1]), event.args[2], version), creationBlock: log.blockNumber, creationBlockHash: log.blockHash }];
       } catch { /* Try the other deployed ABI version. */ }
     }
     return [];
   }), [snapshot.logs, activeChainId]);
   const refresh = useCallback(async () => {
-    if (!deployed) return;
+    if (!deployed || !enabled) return;
     await index.sync(reader);
     // Restart a full-history consumer after a recoverable error stopped its loop.
     if (mode === "all" && !index.snapshot().error) setRetryRevision(value => value + 1);
-  }, [deployed, index, reader, mode]);
+    return index.snapshot().error;
+  }, [deployed, enabled, index, reader, mode]);
   const loadMore = useCallback(() => deployed ? index.sync(reader, { revalidate: false }) : Promise.resolve(), [deployed, index, reader]);
   return { key, sessions, snapshot, client, refresh, loadMore, deployed, activeChainId };
 }
 
 async function loadIndexedSession(client: ChainReadClient, key: string, session: SessionCatalogFromEvent) {
-  const cacheKey = `${key}:${session.sessionAddress.toLowerCase()}`;
+  const cacheKey = `${key}:${session.sessionAddress.toLowerCase()}:${session.creationBlockHash ?? "unknown"}`;
   const cached = getFreshCacheValue(SESSION_STATUS_CACHE, cacheKey, 15_000);
   if (cached) return cached;
   const pending = SESSION_STATUS_FLIGHTS.get(cacheKey);
@@ -1352,6 +1238,7 @@ async function loadIndexedSession(client: ChainReadClient, key: string, session:
       ticketsSold: BigInt(ticketsSold), isSettled: Boolean(isSettled), settlementType,
     };
     SESSION_STATUS_CACHE.set(cacheKey, { value, updatedAt: Date.now() });
+    writeSessionStatus(getBrowserIndexStorage(), key, value);
     return value;
   })().finally(() => SESSION_STATUS_FLIGHTS.delete(cacheKey));
   SESSION_STATUS_FLIGHTS.set(cacheKey, promise);
@@ -1362,25 +1249,31 @@ export function useActiveSessions() {
   const catalog = useSharedSessionIndex();
   const [visibleCount, setVisibleCount] = useState(12);
   const [revision, setRevision] = useState(0);
-  const [state, setState] = useState<{ key: string; sessions: SessionConfigFromEvent[]; loading: boolean; error: ReadErrorKind | null }>({ key: "", sessions: [], loading: false, error: null });
+  const [state, setState] = useState<{ key: string; sessions: SessionConfigFromEvent[]; loading: boolean; error: ReadErrorKind | null; updatedAt?: number; showingCached?: boolean }>({ key: "", sessions: [], loading: false, error: null });
   useEffect(() => { setVisibleCount(12); }, [catalog.key]);
   useEffect(() => {
     let active = true;
     const entries = catalog.sessions.slice(0, visibleCount);
-    setState(previous => ({ key: catalog.key, sessions: previous.key === catalog.key ? previous.sessions : [], loading: entries.length > 0, error: null }));
+    setState(previous => ({ key: catalog.key, sessions: previous.key === catalog.key ? previous.sessions.filter(session => entries.some(entry => entry.sessionAddress === session.sessionAddress && entry.creationBlockHash === session.creationBlockHash)) : [], updatedAt: previous.key === catalog.key ? previous.updatedAt : 0, showingCached: true, loading: entries.length > 0, error: null }));
     async function load() {
+      const cached = (await Promise.all(entries.map(session => readSessionStatus(getBrowserIndexStorage(), catalog.key, session))))
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+      if (!active) return;
+      const cachedAt = cached.length ? Math.min(...cached.map(entry => entry.updatedAt)) : 0;
+      if (cached.length) setState({ key: catalog.key, sessions: cached.map(entry => entry.value), loading: true, error: null, updatedAt: cachedAt, showingCached: true });
       const result: SessionConfigFromEvent[] = [];
       let error: ReadErrorKind | null = null;
       for (const session of entries) {
         if (!active) return;
         try { result.push(await loadIndexedSession(catalog.client, catalog.key, session)); }
         catch (reason) { error = reason instanceof ChainReadError ? reason.kind : "unavailable"; break; }
-        if (active) setState({ key: catalog.key, sessions: [...result], loading: true, error: null });
+        const remaining = cached.filter(entry => !result.some(session => session.sessionAddress === entry.value.sessionAddress));
+        if (active) setState({ key: catalog.key, sessions: [...result, ...remaining.map(entry => entry.value)], loading: true, error: null, updatedAt: remaining.length ? cachedAt : Date.now(), showingCached: remaining.length > 0 });
       }
       if (active) setState(previous => ({ key: catalog.key,
-        sessions: error && !result.length && previous.key === catalog.key
+        sessions: error && previous.key === catalog.key
           ? previous.sessions.filter(session => entries.some(entry => entry.sessionAddress === session.sessionAddress)) : result,
-        loading: false, error }));
+        loading: false, error, updatedAt: error ? previous.updatedAt : result.length ? Date.now() : 0, showingCached: Boolean(error) }));
     }
     void load();
     return () => { active = false; };
@@ -1396,26 +1289,28 @@ export function useActiveSessions() {
   }, [catalog.sessions.length, visibleCount, catalog.loadMore]);
   return {
     sessions: state.key === catalog.key ? state.sessions : [],
-    loading: catalog.snapshot.loading || (state.key === catalog.key && state.loading),
+    loading: !catalog.snapshot.hydrated || catalog.snapshot.loading || (state.key === catalog.key && state.loading),
     error: catalog.snapshot.error ?? (state.key === catalog.key ? state.error : null),
     complete: !catalog.deployed || catalog.snapshot.complete,
     scannedBlocks: catalog.snapshot.scannedBlocks,
+    updatedAt: state.key === catalog.key ? state.updatedAt ?? 0 : 0,
+    showingCached: state.key === catalog.key && Boolean(state.showingCached),
     hasMore: catalog.deployed && (!catalog.snapshot.complete || catalog.sessions.length > visibleCount),
     refresh, loadMore,
   };
 }
 
-export function useAllSessionCatalog() {
-  const catalog = useSharedSessionIndex("all");
+export function useAllSessionCatalog(enabled = true, progressive = false) {
+  const catalog = useSharedSessionIndex(progressive ? "page" : "all", enabled);
   const [state, setState] = useState<{ key: string; sessions: SessionCatalogFromEvent[]; loading: boolean; error: ReadErrorKind | null }>({ key: "", sessions: [], loading: false, error: null });
   useEffect(() => {
     let active = true;
-    if (!catalog.deployed) {
+    if (!catalog.deployed || !enabled) {
       setState({ key: catalog.key, sessions: [], loading: false, error: null });
       return;
     }
-    if (!catalog.snapshot.complete || catalog.snapshot.loading) return;
-    setState({ key: catalog.key, sessions: [], loading: true, error: null });
+    if (!progressive && (!catalog.snapshot.complete || catalog.snapshot.loading)) return;
+    setState(previous => ({ key: catalog.key, sessions: previous.key === catalog.key ? previous.sessions : [], loading: true, error: null }));
     void (async () => {
       try {
         const next: SessionCatalogFromEvent[] = [];
@@ -1423,22 +1318,32 @@ export function useAllSessionCatalog() {
           if (!active) return;
           const token = await loadIndexToken(catalog.client, session.paymentToken);
           next.push({ ...session, paymentTokenDecimals: token.decimals, paymentTokenSymbol: token.symbol });
+          if (active && progressive) {
+            const discovered = [...next];
+            setState(previous => ({ key: catalog.key, loading: true, error: null, sessions: [
+              ...discovered,
+              ...(previous.key === catalog.key ? previous.sessions.filter(old =>
+                !discovered.some(item => item.sessionAddress === old.sessionAddress) &&
+                catalog.sessions.some(item => item.sessionAddress === old.sessionAddress && item.creationBlockHash === old.creationBlockHash)) : []),
+            ] }));
+          }
         }
         if (active) {
           SESSION_CATALOG_CACHE.set(catalog.activeChainId, { value: next, updatedAt: Date.now() });
           setState({ key: catalog.key, sessions: next, loading: false, error: null });
         }
       } catch (error) {
-        if (active) setState({ key: catalog.key, sessions: [], loading: false, error: error instanceof ChainReadError ? error.kind : "unavailable" });
+        if (active) setState(previous => ({ key: catalog.key, sessions: previous.key === catalog.key ? previous.sessions.filter(session => catalog.sessions.some(entry => entry.sessionAddress === session.sessionAddress)) : [], loading: false, error: error instanceof ChainReadError ? error.kind : "unavailable" }));
       }
     })();
     return () => { active = false; };
-  }, [catalog.key, catalog.sessions, catalog.snapshot.complete, catalog.snapshot.loading, catalog.client, catalog.activeChainId, catalog.deployed]);
+  }, [catalog.key, catalog.sessions, catalog.snapshot.complete, catalog.snapshot.loading, catalog.client, catalog.activeChainId, catalog.deployed, enabled, progressive]);
   const error = catalog.snapshot.error ?? (state.key === catalog.key ? state.error : null);
   return {
-    sessions: state.key === catalog.key ? state.sessions : [],
-    loading: catalog.deployed && !error && (!catalog.snapshot.complete || catalog.snapshot.loading || state.key !== catalog.key || state.loading),
-    error, scannedBlocks: catalog.snapshot.scannedBlocks, refresh: catalog.refresh, client: catalog.client,
+    sessions: state.key === catalog.key ? state.sessions : EMPTY_SESSION_CATALOG,
+    loading: enabled && catalog.deployed && !error && (!catalog.snapshot.hydrated || (!progressive && !catalog.snapshot.complete) || catalog.snapshot.loading || state.key !== catalog.key || state.loading),
+    complete: !catalog.deployed || catalog.snapshot.complete,
+    error, scannedBlocks: catalog.snapshot.scannedBlocks, refresh: catalog.refresh, loadMore: catalog.loadMore, client: catalog.client,
   };
 }
 
@@ -1799,23 +1704,7 @@ interface PurchaseLogLike {
   logIndex?: number;
 }
 
-interface PurchaseLogProvider {
-  getLogs(filter: {
-    address: string | string[];
-    fromBlock: number;
-    toBlock: number;
-    topics: ReturnType<Interface["encodeFilterTopics"]>;
-  }): Promise<PurchaseLogLike[]>;
-}
-
-interface PurchaseLogBatchRequest {
-  sessionAddresses: string[];
-  fromBlock: number;
-  toBlock: number;
-}
-
 const PURCHASE_LOG_BLOCK_RANGE = 9000;
-const PURCHASE_LOG_ADDRESS_CHUNK_SIZE = 25;
 const PURCHASE_LOG_CONCURRENCY = 6;
 
 function chunkValues<T>(values: T[], size: number) {
@@ -1993,212 +1882,6 @@ async function querySessionWinnerSelection(
   return winnerEvents[0] ?? null;
 }
 
-async function loadPurchaseLogsForBatch(
-  provider: PurchaseLogProvider,
-  request: PurchaseLogBatchRequest,
-  topics: ReturnType<Interface["encodeFilterTopics"]>,
-) {
-  try {
-    return await provider.getLogs({
-      address: request.sessionAddresses,
-      fromBlock: request.fromBlock,
-      toBlock: request.toBlock,
-      topics,
-    });
-  } catch {
-    return provider.getLogs({
-      address: request.sessionAddresses,
-      fromBlock: request.fromBlock,
-      toBlock: request.toBlock,
-      topics,
-    });
-  }
-}
-
-async function queryPurchaseLogsAcrossSessions(
-  provider: PurchaseLogProvider,
-  sessionAddresses: string[],
-  playerAddress: string,
-  fromBlock: number,
-  toBlock: number,
-) {
-  if (sessionAddresses.length === 0 || fromBlock > toBlock) {
-    return [] as PurchaseLogLike[];
-  }
-
-  const topics = SESSION_INTERFACE.encodeFilterTopics("TicketsPurchased", [
-    playerAddress,
-  ]);
-  const addressChunks = chunkValues(
-    sessionAddresses,
-    PURCHASE_LOG_ADDRESS_CHUNK_SIZE,
-  );
-  const blockRanges = buildBlockRanges(
-    fromBlock,
-    toBlock,
-    PURCHASE_LOG_BLOCK_RANGE,
-  );
-  const requests = addressChunks.flatMap((addresses) =>
-    blockRanges.map(
-      (range) =>
-        ({
-          sessionAddresses: addresses,
-          fromBlock: range.fromBlock,
-          toBlock: range.toBlock,
-        }) satisfies PurchaseLogBatchRequest,
-    ),
-  );
-
-  const primaryResults = await runTasksWithConcurrency(
-    requests.map(
-      (request) => () => loadPurchaseLogsForBatch(provider, request, topics),
-    ),
-    PURCHASE_LOG_CONCURRENCY,
-  );
-
-  const logs: PurchaseLogLike[] = [];
-  const fallbackRequests: PurchaseLogBatchRequest[] = [];
-
-  primaryResults.forEach((result, index) => {
-    if (result.status === "fulfilled") {
-      logs.push(...result.value);
-      return;
-    }
-
-    const request = requests[index];
-    if (request.sessionAddresses.length <= 1) {
-      return;
-    }
-
-    fallbackRequests.push(
-      ...request.sessionAddresses.map(
-        (sessionAddress) =>
-          ({
-            sessionAddresses: [sessionAddress],
-            fromBlock: request.fromBlock,
-            toBlock: request.toBlock,
-          }) satisfies PurchaseLogBatchRequest,
-      ),
-    );
-  });
-
-  if (fallbackRequests.length > 0) {
-    const fallbackResults = await runTasksWithConcurrency(
-      fallbackRequests.map(
-        (request) => () => loadPurchaseLogsForBatch(provider, request, topics),
-      ),
-      PURCHASE_LOG_CONCURRENCY,
-    );
-
-    fallbackResults.forEach((result) => {
-      if (result.status === "fulfilled") {
-        logs.push(...result.value);
-      }
-    });
-  }
-
-  return Array.from(
-    new Map(
-      logs.map((log) => [
-        `${log.address.toLowerCase()}-${log.transactionHash}-${Number(log.index ?? log.logIndex ?? 0)}`,
-        log,
-      ]),
-    ).values(),
-  );
-}
-
-async function queryWinnerLogsAcrossSessions(
-  provider: PurchaseLogProvider,
-  sessionAddresses: string[],
-  winnerAddress: string | null,
-  fromBlock: number,
-  toBlock: number,
-) {
-  if (sessionAddresses.length === 0 || fromBlock > toBlock) {
-    return [] as PurchaseLogLike[];
-  }
-
-  const topics = SESSION_INTERFACE.encodeFilterTopics("WinnerSelected", [
-    winnerAddress,
-  ]);
-  const addressChunks = chunkValues(
-    sessionAddresses,
-    PURCHASE_LOG_ADDRESS_CHUNK_SIZE,
-  );
-  const blockRanges = buildBlockRanges(
-    fromBlock,
-    toBlock,
-    PURCHASE_LOG_BLOCK_RANGE,
-  );
-  const requests = addressChunks.flatMap((addresses) =>
-    blockRanges.map(
-      (range) =>
-        ({
-          sessionAddresses: addresses,
-          fromBlock: range.fromBlock,
-          toBlock: range.toBlock,
-        }) satisfies PurchaseLogBatchRequest,
-    ),
-  );
-
-  const primaryResults = await runTasksWithConcurrency(
-    requests.map(
-      (request) => () => loadPurchaseLogsForBatch(provider, request, topics),
-    ),
-    PURCHASE_LOG_CONCURRENCY,
-  );
-
-  const logs: PurchaseLogLike[] = [];
-  const fallbackRequests: PurchaseLogBatchRequest[] = [];
-
-  primaryResults.forEach((result, index) => {
-    if (result.status === "fulfilled") {
-      logs.push(...result.value);
-      return;
-    }
-
-    const request = requests[index];
-    if (request.sessionAddresses.length <= 1) {
-      return;
-    }
-
-    fallbackRequests.push(
-      ...request.sessionAddresses.map(
-        (sessionAddress) =>
-          ({
-            sessionAddresses: [sessionAddress],
-            fromBlock: request.fromBlock,
-            toBlock: request.toBlock,
-          }) satisfies PurchaseLogBatchRequest,
-      ),
-    );
-  });
-
-  if (fallbackRequests.length > 0) {
-    const fallbackResults = await runTasksWithConcurrency(
-      fallbackRequests.map(
-        (request) => () => loadPurchaseLogsForBatch(provider, request, topics),
-      ),
-      PURCHASE_LOG_CONCURRENCY,
-    );
-
-    fallbackResults.forEach((result) => {
-      if (result.status === "fulfilled") {
-        logs.push(...result.value);
-      }
-    });
-  }
-
-  return Array.from(
-    new Map(
-      logs.map((log) => [
-        `${log.address.toLowerCase()}-${log.transactionHash}-${Number(log.index ?? log.logIndex ?? 0)}`,
-        log,
-      ]),
-    ).values(),
-  );
-}
-
 function parseWinnerSelectionLogs(
   logs: PurchaseLogLike[],
   userAddress?: string | null,
@@ -2284,21 +1967,10 @@ interface UseTreasuryActivityOptions {
   sessionAddress?: string | null;
   userAddress?: string | null;
   limit?: number;
+  treasuryAddress?: string | null;
+  sessionChainId?: number | null;
+  creationBlock?: number;
 }
-
-interface TreasuryActivityQueryOptions {
-  sessionAddress?: string | null;
-  userAddress?: string | null;
-}
-
-interface TreasuryLogRequest {
-  fromBlock: number;
-  toBlock: number;
-  topics: ReturnType<Interface["encodeFilterTopics"]>;
-}
-
-const TREASURY_ACTIVITY_BLOCK_RANGE = 9000;
-const TREASURY_ACTIVITY_CONCURRENCY = 6;
 
 function getTreasuryEventKind(eventName: string): TreasuryActivityKind | null {
   switch (eventName) {
@@ -2351,7 +2023,7 @@ function getTreasuryActivityTone(kind: TreasuryActivityKind): TreasuryActivityTo
 
 function parseTreasuryActivityEvent(
   contract: Contract,
-  event: Log,
+  event: Log | IndexedLog,
   chainId: number,
   blockTimestampMap: Map<number, number>,
 ): TreasuryActivityRecord | null {
@@ -2404,50 +2076,6 @@ function parseTreasuryActivityEvent(
   }
 }
 
-async function queryTreasuryEvents(
-  provider: {
-    getLogs: (filter: {
-      address: string;
-      fromBlock: number;
-      toBlock: number;
-      topics?: ReturnType<Interface["encodeFilterTopics"]>;
-    }) => Promise<Log[]>;
-  },
-  address: string,
-  fromBlock: number,
-  toBlock: number,
-  options: TreasuryActivityQueryOptions,
-) {
-  if (fromBlock > toBlock) {
-    return [] as Log[];
-  }
-
-  const requests = buildTreasuryLogRequests(fromBlock, toBlock, options);
-  if (requests.length === 0) {
-    return [] as Log[];
-  }
-
-  const results = await runTasksWithConcurrency(
-    requests.map(
-      (request) => () => loadTreasuryLogsBatch(provider, address, request),
-    ),
-    TREASURY_ACTIVITY_CONCURRENCY,
-  );
-
-  const events = results.flatMap((result) =>
-    result.status === "fulfilled" ? result.value : [],
-  );
-
-  return Array.from(
-    new Map(
-      events.map((event) => [
-        `${event.transactionHash}-${event.blockNumber}-${Number((event as { logIndex?: number; index?: number }).logIndex ?? (event as { index?: number }).index ?? 0)}`,
-        event,
-      ]),
-    ).values(),
-  );
-}
-
 function isSameAddress(left: string | null | undefined, right: string | null | undefined) {
   return Boolean(left && right && left.toLowerCase() === right.toLowerCase());
 }
@@ -2474,237 +2102,87 @@ function matchesTreasuryActivityRecord(
   );
 }
 
-function buildTreasuryLogRequests(
-  fromBlock: number,
-  toBlock: number,
-  options: TreasuryActivityQueryOptions,
-) {
-  const { sessionAddress, userAddress } = options;
-  const blockRanges = buildBlockRanges(
-    fromBlock,
-    toBlock,
-    TREASURY_ACTIVITY_BLOCK_RANGE,
-  );
-  const topicsList: ReturnType<Interface["encodeFilterTopics"]>[] = [];
-
-  if (sessionAddress) {
-    topicsList.push(
-      TREASURY_INTERFACE.encodeFilterTopics("SessionRegistered", [
-        sessionAddress,
-      ]),
-      TREASURY_INTERFACE.encodeFilterTopics("PlayerPayTicketIn", [
-        sessionAddress,
-        null,
-      ]),
-      TREASURY_INTERFACE.encodeFilterTopics("SessionTicketBalanceUpdated", [
-        sessionAddress,
-      ]),
-      TREASURY_INTERFACE.encodeFilterTopics("SessionDepositBalanceUpdated", [
-        sessionAddress,
-      ]),
-      TREASURY_INTERFACE.encodeFilterTopics("PartnerDepositLocked", [
-        sessionAddress,
-        null,
-      ]),
-      TREASURY_INTERFACE.encodeFilterTopics("PartnerDepositUnlocked", [
-        sessionAddress,
-        null,
-      ]),
-      TREASURY_INTERFACE.encodeFilterTopics("PartnerDepositSlashed", [
-        sessionAddress,
-        null,
-      ]),
-      TREASURY_INTERFACE.encodeFilterTopics(
-        "EmergencyPartnerDepositUnlocked",
-        [sessionAddress, null],
-      ),
-      TREASURY_INTERFACE.encodeFilterTopics("DistributeFunds", [
-        sessionAddress,
-        null,
-      ]),
-    );
-  }
-
-  if (!sessionAddress && userAddress) {
-    topicsList.push(
-      TREASURY_INTERFACE.encodeFilterTopics("BalanceUpdated", [userAddress]),
-      TREASURY_INTERFACE.encodeFilterTopics("PartnerDepositUpdated", [
-        userAddress,
-      ]),
-      TREASURY_INTERFACE.encodeFilterTopics("Withdraw", [userAddress]),
-      TREASURY_INTERFACE.encodeFilterTopics("PlayerPayTicketIn", [
-        null,
-        userAddress,
-      ]),
-      TREASURY_INTERFACE.encodeFilterTopics("PartnerDepositLocked", [
-        null,
-        userAddress,
-      ]),
-      TREASURY_INTERFACE.encodeFilterTopics("PartnerDepositUnlocked", [
-        null,
-        userAddress,
-      ]),
-      TREASURY_INTERFACE.encodeFilterTopics("PartnerDepositSlashed", [
-        null,
-        userAddress,
-      ]),
-      TREASURY_INTERFACE.encodeFilterTopics(
-        "EmergencyPartnerDepositUnlocked",
-        [null, userAddress],
-      ),
-      TREASURY_INTERFACE.encodeFilterTopics("DistributeFunds", [
-        null,
-        userAddress,
-      ]),
-    );
-  }
-
-  return topicsList.flatMap((topics) =>
-    blockRanges.map(
-      (range) =>
-        ({
-          fromBlock: range.fromBlock,
-          toBlock: range.toBlock,
-          topics,
-        }) satisfies TreasuryLogRequest,
-    ),
-  );
-}
-
-async function loadTreasuryLogsBatch(
-  provider: {
-    getLogs: (filter: {
-      address: string;
-      fromBlock: number;
-      toBlock: number;
-      topics?: ReturnType<Interface["encodeFilterTopics"]>;
-    }) => Promise<Log[]>;
-  },
-  address: string,
-  request: TreasuryLogRequest,
-) {
-  try {
-    return await provider.getLogs({
-      address,
-      fromBlock: request.fromBlock,
-      toBlock: request.toBlock,
-      topics: request.topics,
-    });
-  } catch {
-    return provider.getLogs({
-      address,
-      fromBlock: request.fromBlock,
-      toBlock: request.toBlock,
-      topics: request.topics,
-    });
-  }
-}
-
 export function useTreasuryActivity({
-  enabled = true,
-  sessionAddress = null,
-  userAddress = null,
-  limit = 20,
+  enabled = true, sessionAddress = null, userAddress = null, limit = 20,
+  treasuryAddress = null, sessionChainId = null, creationBlock = 0,
 }: UseTreasuryActivityOptions = {}) {
   const { address, chainId: walletChainId, status } = useWallet();
-  const { readProvider, chain } = useRpc();
-  const [records, setRecords] = useState<TreasuryActivityRecord[]>([]);
-  const [loading, setLoading] = useState(false);
-  const lastFetchKey = useRef<string | null>(null);
-
-  const activeChainId =
-    walletChainId && hasDeployedContracts(walletChainId)
-      ? walletChainId
-      : CHAINS[chain].numericId;
-  const targetUserAddress = userAddress ?? address;
-
-  const refresh = useCallback(async () => {
-    if (!enabled || !readProvider || !hasDeployedContracts(activeChainId)) {
-      setRecords([]);
-      return;
-    }
-    if (!sessionAddress && !targetUserAddress) {
-      setRecords([]);
-      return;
-    }
-    if (!sessionAddress && status !== "connected") {
-      setRecords([]);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const { treasury, deployBlock } = getAddresses(activeChainId);
-      const contract = new Contract(treasury, TREASURY_ABI, readProvider);
-      const currentBlock = await readProvider.getBlockNumber();
-      const events = await queryTreasuryEvents(
-        readProvider,
-        treasury,
-        deployBlock,
-        currentBlock,
-        {
-          sessionAddress,
-          userAddress: targetUserAddress,
-        },
-      );
-      const uniqueBlockNumbers = [
-        ...new Set(
-          events
-            .map((event) => event.blockNumber)
-            .filter((value): value is number => typeof value === "number"),
-        ),
-      ];
-      const blockTimestampMap = await loadBlockTimestampMap(
-        readProvider,
-        uniqueBlockNumbers,
-      );
-      const nextRecords = events
-        .map((event) =>
-          parseTreasuryActivityEvent(
-            contract,
-            event,
-            activeChainId,
-            blockTimestampMap,
-          ),
-        )
-        .filter((record): record is TreasuryActivityRecord => Boolean(record))
-        .filter((record) =>
-          matchesTreasuryActivityRecord(record, {
-            sessionAddress,
-            userAddress: targetUserAddress,
-          }),
-        )
-        .sort((a, b) => {
-          if (b.blockNumber !== a.blockNumber) return b.blockNumber - a.blockNumber;
-          return b.logIndex - a.logIndex;
-        })
-        .slice(0, limit);
-
-      setRecords(nextRecords);
-      lastFetchKey.current = `${activeChainId}-${sessionAddress ?? ""}-${targetUserAddress ?? ""}-${limit}`;
-    } catch {
-      setRecords([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    activeChainId,
-    enabled,
-    limit,
-    readProvider,
-    sessionAddress,
-    status,
-    targetUserAddress,
-  ]);
-
+  const client = useChainReadClient();
+  const chainId = client.chainId;
+  const treasury = treasuryAddress ?? getAddresses(chainId).treasury;
+  const player = sessionAddress ? null : userAddress ?? address;
+  const canRead = enabled && hasDeployedContracts(chainId) && treasury !== ZeroAddress &&
+    (sessionAddress ? sessionChainId === null || sessionChainId === chainId : status === "connected" && walletChainId === chainId && Boolean(player));
+  // Treasury can predate Factory. Without a verified Treasury deployment use a conservative start.
+  const start = sessionAddress ? creationBlock : 0;
+  const key = `${chainId}:${treasury.toLowerCase()}:${start}:${sessionAddress?.toLowerCase() ?? ""}:${player?.toLowerCase() ?? ""}`;
+  const index = useMemo(() => new SessionLogIndex(chainId, treasury, start, getBrowserIndexStorage(), {
+    cacheKey: `onetap:treasury:v1:${key}`,
+    acceptLog: log => acceptsTreasuryLog(log, { sessionAddress, userAddress: player }),
+  }), [key, chainId, treasury, start, sessionAddress, player]);
+  const snapshot = useSyncExternalStore(index.subscribe, index.snapshot, () => EMPTY_INDEX);
+  const owner = useRef<{ index: SessionLogIndex; controller: AbortController } | null>(null);
+  const [visible, setVisible] = useState(limit);
+  const [dates, setDates] = useState<{ key: string; values: Map<string, number> }>({ key: "", values: new Map() });
+  const sync = useCallback(async (older = false) => {
+    const scope = owner.current;
+    if (!canRead || scope?.index !== index || scope.controller.signal.aborted) return;
+    const reader = createTreasuryLogReader(client, treasury, { sessionAddress, userAddress: player }, scope.controller.signal);
+    await index.sync(reader, { maxRanges: 3, revalidate: !older, shouldContinue: () => !scope.controller.signal.aborted });
+  }, [canRead, index, client, treasury, sessionAddress, player]);
   useEffect(() => {
-    const key = `${activeChainId}-${sessionAddress ?? ""}-${targetUserAddress ?? ""}-${limit}`;
-    if (enabled && key !== lastFetchKey.current) {
-      void refresh();
-    }
-  }, [activeChainId, enabled, limit, refresh, sessionAddress, targetUserAddress]);
-
-  return { records, loading, refresh };
+    setVisible(limit);
+    if (!canRead) return;
+    const scope = { index, controller: new AbortController() };
+    owner.current = scope;
+    // A Strict Mode reacquire waits for the aborted flight to drain before starting a new one.
+    void (async () => {
+      await index.ready;
+      await index.whenIdle();
+      if (!scope.controller.signal.aborted) await sync();
+    })();
+    return () => { scope.controller.abort(); if (owner.current === scope) owner.current = null; };
+  }, [canRead, index, sync, limit]);
+  const allRecords = useMemo(() => snapshot.logs.map(log => parseTreasuryActivityEvent(
+    { interface: TREASURY_INTERFACE } as Contract, log, chainId, new Map(),
+  )).filter((record): record is TreasuryActivityRecord => Boolean(record))
+    .filter(record => matchesTreasuryActivityRecord(record, { sessionAddress, userAddress: player }))
+    .sort((a, b) => b.blockNumber - a.blockNumber || b.logIndex - a.logIndex),
+  [snapshot.logs, chainId, sessionAddress, player]);
+  const records = useMemo(() => canRead ? allRecords.slice(0, visible).map(record => {
+    const log = snapshot.logs.find(log => log.transactionHash === record.transactionHash && log.index === record.logIndex);
+    return { ...record, blockTimestamp: log && dates.key === key ? dates.values.get(log.blockHash) ?? 0 : 0 };
+  }) : [], [allRecords, visible, canRead, snapshot.logs, dates, key]);
+  useEffect(() => {
+    if (!canRead || snapshot.loading || snapshot.error) return;
+    const scope = owner.current;
+    if (scope?.index !== index) return;
+    let active = true;
+    const blocks = new Map(snapshot.logs.slice(0, visible).map(log => [log.blockHash, log.blockNumber]));
+    void (async () => {
+      const values = dates.key === key ? new Map(dates.values) : new Map<string, number>();
+      for (const [hash, block] of blocks) {
+        if (!active || scope.controller.signal.aborted) return;
+        if (values.has(hash)) continue;
+        try {
+          const result = await client.send<{ hash: string; timestamp: string } | null>("eth_getBlockByNumber", [`0x${block.toString(16)}`, false], scope.controller.signal);
+          if (result?.hash === hash && Number.isSafeInteger(Number(result.timestamp))) values.set(hash, Number(result.timestamp));
+        } catch { break; }
+      }
+      if (active && !scope.controller.signal.aborted) setDates({ key, values });
+    })();
+    return () => { active = false; };
+    // Dates are auxiliary and never trigger automatic retry loops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canRead, snapshot.logs, snapshot.loading, snapshot.error, visible, client, index, key]);
+  const refresh = useCallback(() => sync(), [sync]);
+  const loadMore = useCallback(async () => {
+    setVisible(value => value + limit);
+    if (allRecords.length <= visible) await sync(true);
+  }, [sync, allRecords.length, visible, limit]);
+  return { records, loading: canRead && (!snapshot.hydrated || snapshot.loading), error: canRead ? snapshot.error : null,
+    complete: canRead && snapshot.complete && !snapshot.error, hasMore: canRead && (!snapshot.complete || allRecords.length > visible),
+    scannedBlocks: snapshot.scannedBlocks, updatedAt: snapshot.updatedAt, refresh, loadMore };
 }
 
 function parseSessionPurchaseEvents(
@@ -2851,67 +2329,64 @@ export function useSessionPurchaseHistory(sessionAddress: string | null) {
 
 export function useAllPurchaseHistory() {
   const { address, status } = useWallet();
-  const { readProvider } = useRpc();
-  const {
-    sessions,
-    loading: sessionsLoading,
-    refresh: refreshSessions,
-  } = useAllSessionCatalog();
-  const [records, setRecords] = useState<GlobalSessionPurchaseRecord[]>([]);
-  const [loading, setLoading] = useState(false);
-  const lastFetchKey = useRef<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    if (!readProvider || !address) {
-      setRecords([]);
-      return;
+  const enabled = status === "connected" && Boolean(address);
+  const catalog = useAllSessionCatalog(enabled, true);
+  const { chain } = useRpc();
+  const chainId = CHAINS[chain].numericId;
+  const { factory, deployBlock } = getAddresses(chainId);
+  const player = enabled ? address!.toLowerCase() : ZeroAddress;
+  const index = useMemo(() => new PurchaseHistoryIndex(chainId, factory, deployBlock, player, getBrowserIndexStorage()), [chainId, factory, deployBlock, player]);
+  const snapshot = useSyncExternalStore(index.subscribe, index.snapshot, () => EMPTY_PURCHASE);
+  const readScope = useRef<PurchaseHistoryIndex | null>(null);
+  useEffect(() => {
+    readScope.current = enabled ? index : null;
+    return () => { readScope.current = null; };
+  }, [index, enabled]);
+  const descriptors = JSON.stringify(catalog.sessions.map(session => ({ sessionAddress: session.sessionAddress,
+    creationBlock: session.creationBlock, creationBlockHash: session.creationBlockHash })).sort((a, b) => a.sessionAddress.localeCompare(b.sessionAddress)));
+  useEffect(() => { index.setSessions(JSON.parse(descriptors)); }, [index, descriptors]);
+  const canRead = enabled && catalog.sessions.length > 0;
+  useEffect(() => {
+    if (canRead && !catalog.error && snapshot.needsInitial && !snapshot.loading && !snapshot.error) {
+      void index.sync(catalog.client, { shouldContinue: () => readScope.current === index });
     }
+  }, [canRead, catalog.error, snapshot.needsInitial, snapshot.loading, snapshot.error, index, catalog.client]);
 
-    if (sessions.length === 0) {
-      setRecords([]);
-      lastFetchKey.current = `${address}-`;
-      return;
-    }
+  const [timeState, setTimeState] = useState<{ index: PurchaseHistoryIndex | null; values: Map<string, number> }>({ index: null, values: new Map() });
+  const timestamps = timeState.index === index ? timeState.values : new Map<string, number>();
+  useEffect(() => {
+    if (!canRead || snapshot.loading || !snapshot.logs.length) return;
+    let active = true;
+    void (async () => {
+      const values = timeState.index === index ? new Map(timeState.values) : new Map<string, number>();
+      const storage = getBrowserIndexStorage();
+      const blocks = new Map(snapshot.logs.map(log => [log.blockHash, log.blockNumber]));
+      for (const [hash, block] of blocks) {
+        if (!active) return;
+        if (values.has(hash)) continue;
+        try {
+          const key = `onetap:block-time:v1:${chainId}:${hash}`;
+          const cached = Number(await storage?.getItem(key));
+          if (Number.isSafeInteger(cached) && cached > 0) { values.set(hash, cached); continue; }
+          const result = await catalog.client.send<{ timestamp: string; hash: string } | null>("eth_getBlockByNumber", [`0x${block.toString(16)}`, false]);
+          if (result?.hash === hash && Number.isSafeInteger(Number(result.timestamp))) {
+            values.set(hash, Number(result.timestamp));
+            void Promise.resolve(storage?.setItem(key, String(Number(result.timestamp)))).catch(() => {});
+          }
+        } catch { break; }
+      }
+      if (active) setTimeState({ index, values });
+    })();
+    return () => { active = false; };
+    // Optional date reads must not retry on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canRead, index, snapshot.logs, snapshot.loading, catalog.client, chainId]);
 
-    setLoading(true);
-    try {
-      const sessionMap = new Map(
-        sessions.map(
-          (session) => [session.sessionAddress.toLowerCase(), session] as const,
-        ),
-      );
-      const { deployBlock } = getAddresses(sessions[0].chainId);
-      const currentBlock = await readProvider.getBlockNumber();
-      const sessionAddresses = sessions.map((session) => session.sessionAddress);
-      const [logs, winnerLogs] = await Promise.all([
-        queryPurchaseLogsAcrossSessions(
-          readProvider,
-          sessionAddresses,
-          address,
-          deployBlock,
-          currentBlock,
-        ),
-        queryWinnerLogsAcrossSessions(
-          readProvider,
-          sessionAddresses,
-          address,
-          deployBlock,
-          currentBlock,
-        ).catch(() => [] as PurchaseLogLike[]),
-      ]);
-      const winnerSelectionMap = parseWinnerSelectionLogs(winnerLogs, address);
-      const uniqueBlockNumbers = [
-        ...new Set(
-          logs
-            .map((log) => log.blockNumber)
-            .filter((value) => typeof value === "number"),
-        ),
-      ];
-      const blockTimestampMap = await loadBlockTimestampMap(
-        readProvider,
-        uniqueBlockNumbers,
-      );
-      const nextRecords = logs
+  const records = useMemo(() => {
+    if (!enabled) return [];
+    const sessionMap = new Map(catalog.sessions.map(session => [session.sessionAddress.toLowerCase(), session]));
+    const winnerSelectionMap = parseWinnerSelectionLogs(snapshot.logs, address);
+      return snapshot.logs
         .map((log) => {
           try {
             const parsed = SESSION_INTERFACE.parseLog(log);
@@ -2949,14 +2424,14 @@ export function useAllPurchaseHistory() {
             return {
               transactionHash: log.transactionHash,
               blockNumber: log.blockNumber,
-              blockTimestamp: blockTimestampMap.get(log.blockNumber) ?? 0,
+              blockTimestamp: timestamps.get(log.blockHash) ?? 0,
               quantity,
               nextIndex,
               firstTicketIndex,
               lastTicketIndex,
               isWinningRecord,
               winningTicketIndex: isWinningRecord ? winningTicketIndex : null,
-              logIndex: Number(log.logIndex ?? log.index ?? 0),
+              logIndex: log.index,
               session,
             } satisfies GlobalSessionPurchaseRecord;
           } catch {
@@ -2972,61 +2447,31 @@ export function useAllPurchaseHistory() {
           return b.logIndex - a.logIndex;
         });
 
-      const cacheKey = `${address}-${sessions.map((session) => session.sessionAddress).join(",")}`;
-      GLOBAL_PURCHASE_HISTORY_CACHE.set(cacheKey, {
-        value: nextRecords,
-        updatedAt: Date.now(),
-      });
-      setRecords(nextRecords);
-      lastFetchKey.current = cacheKey;
-    } catch {
-      setRecords([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [address, readProvider, sessions]);
+  }, [enabled, catalog.sessions, snapshot.logs, address, timeState, index]);
 
-  useEffect(() => {
-    if (status !== "connected") {
-      setRecords([]);
-      lastFetchKey.current = null;
-      return;
-    }
-
-    if (!address || !readProvider || sessionsLoading) return;
-
-    const key = `${address}-${sessions.map((session) => session.sessionAddress).join(",")}`;
-    const cachedRecords = getFreshCacheValue(
-      GLOBAL_PURCHASE_HISTORY_CACHE,
-      key,
-      GLOBAL_PURCHASE_HISTORY_CACHE_TTL_MS,
-    );
-    if (cachedRecords) {
-      setRecords(cachedRecords);
-      lastFetchKey.current = key;
-      return;
-    }
-    if (lastFetchKey.current !== key) {
-      void refresh();
-    }
-  }, [address, readProvider, refresh, sessions, sessionsLoading, status]);
-
-  const refreshAll = useCallback(async () => {
-    if (address) {
-      GLOBAL_PURCHASE_HISTORY_CACHE.forEach((_, cacheKey) => {
-        if (cacheKey.startsWith(`${address}-`)) {
-          GLOBAL_PURCHASE_HISTORY_CACHE.delete(cacheKey);
-        }
-      });
-    }
-    lastFetchKey.current = null;
-    await refreshSessions();
-  }, [address, refreshSessions]);
-
+  const refresh = useCallback(async () => {
+    if (!enabled) return;
+    await catalog.refresh();
+    if (readScope.current === index) await index.sync(catalog.client, { mode: "refresh", shouldContinue: () => readScope.current === index });
+  }, [enabled, catalog.refresh, catalog.client, index]);
+  const loadMore = useCallback(async () => {
+    if (!enabled) return;
+    // Discover another directory page, then continue existing per-session cursors.
+    if (!catalog.complete) await catalog.loadMore();
+    if (readScope.current === index) await index.sync(catalog.client, { mode: "older", shouldContinue: () => readScope.current === index });
+  }, [enabled, catalog.complete, catalog.loadMore, catalog.client, index]);
   return {
     records,
-    loading: sessionsLoading || loading,
-    refresh: refreshAll,
+    loading: enabled && (catalog.loading || snapshot.loading),
+    error: enabled ? catalog.error ?? snapshot.error : null,
+    scannedBlocks: snapshot.scannedBlocks,
+    catalogScannedBlocks: catalog.scannedBlocks,
+    catalogLoading: catalog.loading,
+    updatedAt: snapshot.updatedAt,
+    showingCached: snapshot.loading || snapshot.needsInitial || Boolean(snapshot.error || catalog.error),
+    complete: !enabled || (catalog.complete && !catalog.loading && !catalog.error && snapshot.hydrated && snapshot.complete && !snapshot.needsInitial),
+    hasMore: enabled && (!catalog.complete || !snapshot.complete || snapshot.needsInitial),
+    refresh, loadMore,
   };
 }
 

@@ -36,6 +36,8 @@ import { CHAINS } from "@/lib/rpc/nodes"
 import { useRpc } from "@/lib/rpc/context"
 import { useWallet } from "@/lib/wallet/context"
 import { formatTokenAmount, getPaymentTokenSymbol } from "@/lib/token-format"
+import { useOneTapCopy } from "@/components/one-tap/navigation"
+import { ChainCacheStatus } from "@/components/one-tap/chain-read-status"
 
 interface GroupedPurchaseHistory {
   session: SessionCatalogFromEvent
@@ -258,7 +260,8 @@ export function AllPurchaseHistory() {
   const t = useT()
   const { chain } = useRpc()
   const { status, address } = useWallet()
-  const { records, loading, refresh } = useAllPurchaseHistory()
+  const { records, loading, error, complete, scannedBlocks, catalogScannedBlocks, catalogLoading, updatedAt, showingCached, hasMore, refresh, loadMore } = useAllPurchaseHistory()
+  const copy = useOneTapCopy()
   const [revealedSecrets, setRevealedSecrets] = useState<Record<string, boolean>>({})
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [localRecordsBySession, setLocalRecordsBySession] = useState<Record<string, LocalPurchaseRecord[]>>({})
@@ -376,13 +379,26 @@ export function AllPurchaseHistory() {
           </div>
         </div>
 
+        <ChainCacheStatus updatedAt={updatedAt} cached={showingCached} loading={loading} />
         {loading && groupedSessions.length === 0 && (
           <div className="flex items-center justify-center py-10">
             <span className="loading loading-spinner loading-md text-primary" />
           </div>
         )}
 
-        {!loading && groupedSessions.length === 0 && (
+        {(loading || error || !complete) && <div className="space-y-3" aria-live="polite">
+          {error && <div role="alert" className="alert alert-warning text-sm">
+            <span>{error === "rate-limit" ? copy.rateLimited : error === "timeout" ? copy.readTimeout : copy.readUnavailable}</span>
+          </div>}
+          <p className="text-sm text-base-content/60">
+            {catalogLoading ? copy.recordsCatalogLoading : copy.recordsProgress.replace("{n}", scannedBlocks.toLocaleString())}
+            {catalogLoading && <> · {copy.scanProgress.replace("{n}", catalogScannedBlocks.toLocaleString())}</>}
+          </p>
+          {!complete && !loading && !error && <p className="text-sm text-base-content/60">{copy.recordsPartial}</p>}
+          {hasMore && !error && <button className="btn btn-outline btn-sm" disabled={loading} onClick={() => void loadMore()}>{copy.recordsOlder}</button>}
+        </div>}
+
+        {!loading && !error && complete && groupedSessions.length === 0 && (
           <div className="rounded-2xl border border-dashed border-base-content/15 bg-base-100/60 px-4 py-10 text-center">
             <p className="font-semibold text-base-content/70">{t.session.noGlobalPurchaseHistory}</p>
             <p className="mt-2 text-sm text-base-content/45">

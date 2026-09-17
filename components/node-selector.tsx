@@ -154,7 +154,7 @@ function NodeListContent({
   )
 }
 
-export function NodeSelector() {
+export function NodeSelector({ inlineDesktop = false }: { inlineDesktop?: boolean }) {
   const { chain, activeNode, autoMode, healths, ready, refreshAll } = useRpc()
   const t = useT()
 
@@ -212,10 +212,11 @@ export function NodeSelector() {
 
   return (
     <>
-      <div className="relative" ref={desktopRef}>
+      <div className={`relative${inlineDesktop ? " ot-node-selector-inline" : ""}`} ref={desktopRef}>
         {/* trigger button */}
         <button
-          className="btn btn-ghost btn-xs sm:btn-sm gap-1 sm:gap-1.5 text-xs"
+          className="btn btn-ghost btn-xs sm:btn-sm gap-1 sm:gap-1.5 text-xs ot-node-trigger"
+          title={statusLabel}
           onClick={() => {
             // mobile: open dialog; desktop: toggle dropdown
             if (window.innerWidth < 640) {
@@ -230,7 +231,7 @@ export function NodeSelector() {
               !ready ? "animate-pulse" : ""
             }`}
           />
-          <span className="hidden sm:inline max-w-[120px] md:max-w-[160px] truncate">
+          <span className="hidden sm:inline max-w-[120px] md:max-w-[160px] truncate ot-node-status">
             {statusLabel}
           </span>
           {latencyLabel && (
@@ -243,7 +244,7 @@ export function NodeSelector() {
 
         {/* Desktop: absolute dropdown */}
         {desktopOpen && (
-          <div className="hidden sm:block absolute right-0 top-full mt-2 z-[60] w-80 bg-base-300 border border-base-content/10 rounded-box shadow-xl p-3">
+          <div className={`hidden sm:block bg-base-300 border border-base-content/10 rounded-box p-3 ${inlineDesktop ? "ot-node-panel" : "absolute right-0 top-full mt-2 z-[60] w-80 shadow-xl"}`}>
             <NodeListContent onDone={() => setDesktopOpen(false)} />
           </div>
         )}

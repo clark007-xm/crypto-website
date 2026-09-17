@@ -3,6 +3,7 @@
  */
 
 import { PUBLIC_CHAIN_CONFIGS } from "@/lib/config/public-env"
+import { resolveDeploymentBlock } from "./verified-deployments"
 
 export interface ContractAddresses {
   usdt: string
@@ -15,7 +16,11 @@ export interface ContractAddresses {
 }
 
 /** Addresses keyed by chainId (decimal) */
-export const ADDRESSES: Record<number, ContractAddresses> = PUBLIC_CHAIN_CONFIGS
+export const ADDRESSES: Record<number, ContractAddresses> = Object.fromEntries(
+  Object.entries(PUBLIC_CHAIN_CONFIGS).map(([chainId, config]) => [chainId, {
+    ...config, deployBlock: resolveDeploymentBlock(Number(chainId), config.factory, config.deployBlock),
+  }]),
+)
 
 /** Get addresses for a given chainId, fallback to mainnet */
 export function getAddresses(chainId: number | null): ContractAddresses {

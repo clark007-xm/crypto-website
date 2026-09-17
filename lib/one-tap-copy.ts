@@ -1,6 +1,9 @@
 import type { Locale } from "@/lib/i18n/types"
 
 const zh = {
+  treasuryOlder: "读取更早流水",
+  cachedData: "当前展示缓存数据", lastUpdated: "最近读取：{time}", syncing: "正在同步",
+  recordsCatalogLoading: "正在补充场次目录，已发现的购票记录会先显示", recordsProgress: "各场次累计已扫描 {n} 个区块", recordsPartial: "当前仅查询了部分历史，统计为已读取记录；可继续查找更早购票记录。", recordsOlder: "读取更早购票记录",
   pools: "奖池", entries: "参与", assets: "资产", fairness: "公平", connect: "连接钱包",
   themeOne: "主题一", themeTwo: "主题二", themeSwitch: "切换主题", settings: "外观与网络",
   headlineA: "今天，", headlineB: "参与一点惊喜", darkA: "轻轻一点，", darkB: "即刻参与",
@@ -27,6 +30,9 @@ const zh = {
 }
 type Copy = typeof zh
 const en: Copy = {
+  treasuryOlder: "Load earlier activity",
+  cachedData: "Showing cached data", lastUpdated: "Last read: {time}", syncing: "Syncing",
+  recordsCatalogLoading: "Syncing the session directory; discovered purchases appear as they load", recordsProgress: "Across sessions: {n} blocks scanned", recordsPartial: "Only part of history has been checked. Totals cover loaded records; continue for older purchases.", recordsOlder: "Load older purchases",
   pools: "Pools", entries: "Entries", assets: "Assets", fairness: "Fairness", connect: "Connect wallet",
   themeOne: "Theme one", themeTwo: "Theme two", themeSwitch: "Switch theme", settings: "Appearance & network",
   headlineA: "A little tap.", headlineB: "A new possibility", darkA: "A little tap,", darkB: "a new possibility.",
@@ -52,6 +58,9 @@ const en: Copy = {
 
 }
 const vi: Copy = {
+  treasuryOlder: "Tải giao dịch trước đó",
+  cachedData: "Đang hiển thị dữ liệu đã lưu", lastUpdated: "Đọc gần nhất: {time}", syncing: "Đang đồng bộ",
+  recordsCatalogLoading: "Đang đồng bộ phiên; giao dịch đã tìm thấy sẽ hiển thị trước", recordsProgress: "Lịch sử mua vé: đã quét {n} khối", recordsPartial: "Chỉ mới đọc một phần lịch sử. Tổng số dựa trên bản ghi đã tải; tiếp tục để tìm giao dịch cũ hơn.", recordsOlder: "Đọc giao dịch mua vé cũ hơn",
   pools: "Quỹ thưởng", entries: "Tham gia", assets: "Tài sản", fairness: "Công bằng", connect: "Kết nối ví",
   themeOne: "Giao diện 1", themeTwo: "Giao diện 2", themeSwitch: "Đổi giao diện", settings: "Giao diện & mạng",
   headlineA: "Hôm nay,", headlineB: "chạm vào bất ngờ", darkA: "Chạm nhẹ,", darkB: "tham gia ngay.", tagline: "Tham gia nhỏ, thêm cơ hội.",

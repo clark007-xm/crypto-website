@@ -26,7 +26,7 @@ export function WalletButton() {
   const { isPartner, loading: partnerLoading, checked: partnerChecked } = useIsPartner()
   const {
     balance: treasuryBalance,
-    loading: treasuryLoading,
+    loading: treasuryLoading, checked: treasuryChecked,
     refresh: refreshTreasuryBalance,
   } = useTreasuryBalance()
 
@@ -165,7 +165,7 @@ export function WalletButton() {
               </button>
             </div>
             <p className="text-sm font-semibold text-secondary font-display mt-0.5">
-              {treasuryLoading ? "..." : formattedTreasuryBalance}
+              {!treasuryChecked ? treasuryLoading ? "..." : "—" : formattedTreasuryBalance}
               <span className="text-xs text-base-content/40 ml-1 font-normal">ETH</span>
             </p>
           </div>

@@ -45,8 +45,11 @@ export function SessionTreasuryCard({ session }: SessionTreasuryCardProps) {
     records: activityRecords,
     loading: activityLoading,
     refresh: refreshActivity,
+    error: activityError, complete: activityComplete, hasMore: activityHasMore,
+    scannedBlocks: activityScannedBlocks, updatedAt: activityUpdatedAt, loadMore: loadMoreActivity,
   } = useTreasuryActivity({
     sessionAddress: session.sessionAddress,
+    treasuryAddress: session.treasury, sessionChainId: session.chainId, creationBlock: session.creationBlock,
     limit: 16,
   })
 
@@ -122,6 +125,8 @@ export function SessionTreasuryCard({ session }: SessionTreasuryCardProps) {
         description={t.treasury.sessionActivityDesc}
         records={activityRecords}
         loading={activityLoading}
+          error={activityError} complete={activityComplete} hasMore={activityHasMore}
+          scannedBlocks={activityScannedBlocks} updatedAt={activityUpdatedAt} onLoadMore={loadMoreActivity}
         onRefresh={() => void refreshActivity()}
       />
     </div>

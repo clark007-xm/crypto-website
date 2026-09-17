@@ -76,7 +76,7 @@ export function OneTapNavbar() {
           <button className="ot-theme-choice" aria-pressed={mounted && theme === "onetap-dark"} onClick={() => changeTheme("two")}><Moon /><span>{copy.themeTwo}</span></button>
         </div>
         <label className="ot-setting-row"><span>Language</span><select aria-label="Language" value={locale} onChange={e => setLocale(e.target.value as typeof locale)} className="select select-bordered select-sm"><option value="zh">简体中文</option><option value="en">English</option><option value="vi">Tiếng Việt</option></select></label>
-        <div className="ot-setting-row"><span>{copy.network}</span><NodeSelector /></div>
+        <div className="ot-setting-row ot-setting-network"><span>{copy.network}</span><NodeSelector inlineDesktop /></div>
         <p className="ot-muted ot-setting-note"><CircleHelp size={16} />{copy.networkHint}</p>
       </div>
       <form method="dialog" className="modal-backdrop"><button aria-label={copy.settingsClose}>Close</button></form>

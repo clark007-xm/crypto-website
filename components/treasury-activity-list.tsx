@@ -4,6 +4,9 @@ import { ExternalLink, RefreshCw } from "lucide-react"
 import { formatEther } from "ethers"
 import { getExplorerTxUrl } from "@/lib/contracts/addresses"
 import type { TreasuryActivityKind, TreasuryActivityRecord } from "@/lib/contracts/hooks"
+import { useOneTapCopy } from "@/components/one-tap/navigation"
+import { ChainCacheStatus } from "@/components/one-tap/chain-read-status"
+import type { ReadErrorKind } from "@/lib/rpc/read-client"
 import { useT } from "@/lib/i18n/context"
 
 interface TreasuryActivityListProps {
@@ -12,6 +15,12 @@ interface TreasuryActivityListProps {
   records: TreasuryActivityRecord[]
   loading: boolean
   onRefresh: () => void
+  error: ReadErrorKind | null
+  complete: boolean
+  hasMore: boolean
+  scannedBlocks: number
+  updatedAt: number
+  onLoadMore: () => void
 }
 
 function formatAmount(amount: bigint | null) {
@@ -67,9 +76,10 @@ export function TreasuryActivityList({
   description,
   records,
   loading,
-  onRefresh,
+  onRefresh, error, complete, hasMore, scannedBlocks, updatedAt, onLoadMore,
 }: TreasuryActivityListProps) {
   const t = useT()
+  const copy = useOneTapCopy()
 
   return (
     <section className="card border border-base-content/5 bg-base-200">
@@ -85,6 +95,11 @@ export function TreasuryActivityList({
           </button>
         </div>
 
+        {error && <p role="alert" className="text-sm text-error">{error === "rate-limit" ? copy.rateLimited : error === "timeout" ? copy.readTimeout : copy.readUnavailable}</p>}
+        {!complete && <p className="text-xs text-base-content/60">{copy.scanProgress.replace("{n}", scannedBlocks.toLocaleString())} · {copy.partialNote}</p>}
+        <ChainCacheStatus updatedAt={updatedAt} cached={Boolean(error) || loading} loading={loading} />
+        {hasMore && !error && <button className="btn btn-outline btn-sm self-start" disabled={loading} onClick={onLoadMore}>{copy.treasuryOlder}</button>}
+
         {loading && records.length === 0 && (
           <div className="space-y-3">
             <div className="h-20 animate-pulse rounded-2xl bg-base-300/80" />
@@ -93,7 +108,7 @@ export function TreasuryActivityList({
           </div>
         )}
 
-        {!loading && records.length === 0 && (
+        {!loading && !error && complete && records.length === 0 && (
           <div className="rounded-2xl border border-dashed border-base-content/15 bg-base-100/60 px-4 py-8 text-center">
             <p className="font-semibold text-base-content/70">{t.treasury.noActivity}</p>
           </div>

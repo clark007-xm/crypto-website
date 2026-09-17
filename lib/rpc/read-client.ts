@@ -26,12 +26,14 @@ export class ChainReadClient {
     private options: { timeoutMs?: number; gapMs?: number; cooldownMs?: number; fetch?: typeof fetch } = {},
   ) {}
 
-  send<T>(method: string, params: unknown[]): Promise<T> {
+  send<T>(method: string, params: unknown[], signal?: AbortSignal): Promise<T> {
     if (!["eth_blockNumber", "eth_getLogs", "eth_call", "eth_getBlockByNumber", "eth_getCode"].includes(method)) {
       return Promise.reject(new ChainReadError("invalid-response"))
     }
     const task = this.tail.then(async () => {
+      signal?.throwIfAborted()
       await pause(this.options.gapMs ?? 180)
+      signal?.throwIfAborted()
       const now = Date.now()
       const candidates = this.urls.map((url, index) => ({ url, index }))
         .filter(({ url }) => (this.cooldown.get(url) ?? 0) <= now)
@@ -42,16 +44,18 @@ export class ChainReadClient {
       // One attempt per configured endpoint. Failed endpoints cool down; no hidden SDK retry loop.
       for (const { url, index } of candidates) {
         try {
+          signal?.throwIfAborted()
           if (Date.now() >= deadline) throw new ChainReadError("timeout")
           if (!this.verified.has(url)) {
-            const chain = await this.request<string>(url, "eth_chainId", [], deadline)
+            const chain = await this.request<string>(url, "eth_chainId", [], deadline, signal)
             if (Number(chain) !== this.chainId) throw new ChainReadError("invalid-response")
             this.verified.add(url)
           }
-          const result = await this.request<T>(url, method, params, deadline)
+          const result = await this.request<T>(url, method, params, deadline, signal)
           this.preferred = index
           return result
         } catch (error) {
+          signal?.throwIfAborted()
           lastError = error instanceof ChainReadError ? error : new ChainReadError("unavailable")
           this.lastFailure = lastError.kind
           this.cooldown.set(url, Date.now() + (this.options.cooldownMs ?? 30_000))
@@ -63,9 +67,12 @@ export class ChainReadClient {
     return task
   }
 
-  private async request<T>(url: string, method: string, params: unknown[], deadline: number): Promise<T> {
+  private async request<T>(url: string, method: string, params: unknown[], deadline: number, signal?: AbortSignal): Promise<T> {
     if (Date.now() >= deadline) throw new ChainReadError("timeout")
+    signal?.throwIfAborted()
     const controller = new AbortController()
+    const abort = () => controller.abort()
+    signal?.addEventListener("abort", abort, { once: true })
     const timer = setTimeout(() => controller.abort(), Math.min(this.options.timeoutMs ?? 5_000, deadline - Date.now()))
     try {
       const response = await (this.options.fetch ?? fetch)(url, {
@@ -77,23 +84,25 @@ export class ChainReadClient {
       const body = await response.json()
       if (body.error) throw new ChainReadError(body.error.code === -32005 ? "rate-limit" : "unavailable")
       if (body.result === undefined) throw new ChainReadError("invalid-response")
+      signal?.throwIfAborted()
       return body.result as T
     } catch (error) {
+      signal?.throwIfAborted()
       if (controller.signal.aborted) throw new ChainReadError("timeout")
       throw error instanceof ChainReadError ? error : new ChainReadError("unavailable")
-    } finally { clearTimeout(timer) }
+    } finally { clearTimeout(timer); signal?.removeEventListener("abort", abort) }
   }
 
-  async getBlockNumber() {
-    const result = Number(await this.send<string>("eth_blockNumber", []))
+  async getBlockNumber(signal?: AbortSignal) {
+    const result = Number(await this.send<string>("eth_blockNumber", [], signal))
     if (!Number.isSafeInteger(result) || result < 0) throw new ChainReadError("invalid-response")
     return result
   }
 
-  async getLogs(address: string | string[], topics: (string | string[] | null)[], from: number, to: number): Promise<IndexedLog[]> {
+  async getLogs(address: string | string[], topics: (string | string[] | null)[], from: number, to: number, signal?: AbortSignal): Promise<IndexedLog[]> {
     const logs = await this.send<Array<Record<string, unknown>>>("eth_getLogs", [{
       address, topics, fromBlock: `0x${from.toString(16)}`, toBlock: `0x${to.toString(16)}`,
-    }])
+    }], signal)
     if (!Array.isArray(logs)) throw new ChainReadError("invalid-response")
     const addresses = (Array.isArray(address) ? address : [address]).map(value => value.toLowerCase())
     return logs.filter(log => !log.removed).map(log => {

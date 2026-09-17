@@ -12,7 +12,7 @@
     "start": "next start",
     "lint": "npm run typecheck",
     "typecheck": "tsc --noEmit",
-    "test:chain-loading": "node --test tests/chain-loading.test.cjs"
+    "test:chain-loading": "node --test tests/chain-loading.test.cjs tests/purchase-history-ui.test.cjs tests/treasury-loading.test.cjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

@@ -14,7 +14,7 @@ import { formatTokenValue, getPaymentTokenSymbol } from "@/lib/token-format"
 import { useCountdown } from "@/hooks/use-countdown"
 import { useOneTapCopy } from "./navigation"
 import { PreviewDialog } from "./preview-dialog"
-import { ChainReadStatus } from "./chain-read-status"
+import { ChainReadStatus, ChainCacheStatus } from "./chain-read-status"
 import type { ReadErrorKind } from "@/lib/rpc/read-client"
 
 interface Pool {
@@ -122,7 +122,7 @@ function Rules() {
     <div className="ot-rule-list">{[{ title: copy.ruleA, body: copy.ruleAText, icon: Ticket }, { title: copy.ruleB, body: copy.ruleBText, icon: Clock3 }, { title: copy.ruleC, body: copy.ruleCText, icon: Wallet }].map(({ title, body, icon: Icon }) => <article key={title}><Icon size={22} /><div><h3>{title}</h3><p>{body}</p></div></article>)}</div>
   </section>
 }
-function Presentation({ pools, loading = false, preview, refresh, error = null, complete = true, scannedBlocks = 0, hasMore = false, loadMore }: { pools: Pool[]; loading?: boolean; preview: boolean; refresh?: () => void; error?: ReadErrorKind | null; complete?: boolean; scannedBlocks?: number; hasMore?: boolean; loadMore?: () => void }) {
+function Presentation({ pools, loading = false, preview, refresh, error = null, complete = true, scannedBlocks = 0, hasMore = false, loadMore, updatedAt = 0, showingCached = false }: { pools: Pool[]; loading?: boolean; preview: boolean; refresh?: () => void; error?: ReadErrorKind | null; complete?: boolean; scannedBlocks?: number; hasMore?: boolean; loadMore?: () => void; updatedAt?: number; showingCached?: boolean }) {
   const copy = useOneTapCopy()
   const { theme } = useTheme()
   const requestedTheme = useSearchParams().get("theme")
@@ -148,6 +148,7 @@ function Presentation({ pools, loading = false, preview, refresh, error = null, 
         {pools.length > 1 && <MorePools pools={pools.slice(1)} preview={preview} onPreview={openPreview} />}
       </div>
       {!preview && <ChainReadStatus error={error} loading={loading} complete={complete} scannedBlocks={scannedBlocks} hasMore={hasMore} refresh={() => refresh?.()} loadMore={() => loadMore?.()} />}
+      {!preview && pools.length > 0 && <ChainCacheStatus updatedAt={updatedAt} cached={showingCached} loading={loading} />}
       <div className="ot-data-note"><p>{copy.poolNote}{error && pools.length > 0 && <> {copy.cachedNote}</>}</p>{preview ? <Link href="/" className="ot-text-button">{copy.realMode}<ArrowRight size={15} /></Link> : <button className="ot-text-button" onClick={refresh} disabled={loading}><RefreshCw size={15} />{copy.refresh}</button>}</div>
       <Rules />
       {!preview && (showWinners ? <RecentWinners /> : <section id="history" className="ot-deferred-history"><h2>{copy.history}</h2><p>{copy.winnersDeferred}</p><button className="ot-text-button" onClick={() => setShowWinners(true)}>{copy.loadWinners}<ArrowRight size={16} /></button></section>)}
@@ -157,10 +158,10 @@ function Presentation({ pools, loading = false, preview, refresh, error = null, 
   </main>
 }
 function LiveHome() {
-  const { sessions, loading, refresh, error, complete, scannedBlocks, hasMore, loadMore } = useActiveSessions()
+  const { sessions, loading, refresh, error, complete, scannedBlocks, hasMore, loadMore, updatedAt, showingCached } = useActiveSessions()
   const pools = useMemo(() => sessions.map(toPool).sort((a, b) => Number(b.state === "active") - Number(a.state === "active")), [sessions])
   // The chain query already owns refresh. No fabricated fallback pools are introduced.
-  return <Presentation pools={pools} loading={loading} preview={false} refresh={refresh} error={error} complete={complete} scannedBlocks={scannedBlocks} hasMore={hasMore} loadMore={loadMore} />
+  return <Presentation pools={pools} loading={loading} preview={false} refresh={refresh} error={error} complete={complete} scannedBlocks={scannedBlocks} hasMore={hasMore} loadMore={loadMore} updatedAt={updatedAt} showingCached={showingCached} />
 }
 export function OneTapHome() {
   const search = useSearchParams()
