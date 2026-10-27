@@ -3,9 +3,12 @@
 import { useLocale, useT } from "@/lib/i18n/context";
 import { getDocsUrl } from "@/lib/site-links";
 import { SiteFooter } from "./site-footer";
+import { MobileSection } from "./one-tap/mobile-section";
+import { useOneTapCopy } from "./one-tap/navigation";
 
 export function HomeFooter() {
   const t = useT();
+  const copy = useOneTapCopy();
   const [locale] = useLocale();
   const docsUrl = getDocsUrl(locale);
 
@@ -16,8 +19,8 @@ export function HomeFooter() {
   ];
 
   return (
-    <div className="bg-base-300/50 border-t border-base-content/5">
-      <SiteFooter />
+    <div className="ot-account-footer bg-base-300/50 border-t border-base-content/5">
+      <MobileSection title={copy.support}><SiteFooter /></MobileSection>
       <div className="max-w-7xl mx-auto px-4 sm:px-10">
         <div className="divider before:bg-base-content/5 after:bg-base-content/5 my-0" />
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 py-4 sm:py-6">

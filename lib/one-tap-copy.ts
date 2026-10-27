@@ -1,6 +1,8 @@
 import type { Locale } from "@/lib/i18n/types"
 
 const zh = {
+  accepting: "参与中", upcoming: "即将开始", sessionOverview: "场次概览", sessionPage: "场次详情", funds: "资金信息",
+  sessionMetric: "场次", orderMetric: "笔记录", ticketMetric: "张票", support: "帮助与平台信息",
   retryRead: "重新读取",
   winnerOlder: "继续查找中奖结果",
   treasuryOlder: "读取更早流水",
@@ -32,6 +34,8 @@ const zh = {
 }
 type Copy = typeof zh
 const en: Copy = {
+  accepting: "Open", upcoming: "Upcoming", sessionOverview: "Overview", sessionPage: "Session details", funds: "Funds",
+  sessionMetric: "Sessions", orderMetric: "Orders", ticketMetric: "Tickets", support: "Help & platform",
   retryRead: "Retry reading",
   winnerOlder: "Continue searching for the winner",
   treasuryOlder: "Load earlier activity",
@@ -62,6 +66,8 @@ const en: Copy = {
 
 }
 const vi: Copy = {
+  accepting: "Đang mở", upcoming: "Sắp bắt đầu", sessionOverview: "Tổng quan", sessionPage: "Chi tiết phiên", funds: "Thông tin quỹ",
+  sessionMetric: "Phiên", orderMetric: "Giao dịch", ticketMetric: "Vé", support: "Trợ giúp & nền tảng",
   retryRead: "Đọc lại",
   winnerOlder: "Tiếp tục tìm người trúng thưởng",
   treasuryOlder: "Tải giao dịch trước đó",

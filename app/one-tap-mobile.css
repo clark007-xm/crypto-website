@@ -1,0 +1,249 @@
+/* Mobile information architecture. Desktop compositions keep their existing styles. */
+.ot-mobile-only, .ot-mobile-pool, .ot-mobile-section-heading { display: none; }
+.ot-brand-stack { flex-shrink: 0; }
+.ot-mobile-section-content { min-width: 0; }
+.ot-session-connect { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 13px; color: var(--ot-muted); }
+.ot-connect-state { display: grid; justify-items: center; gap: 16px; padding: 28px; color: var(--ot-muted); text-align: center; }
+
+@media (max-width: 767px) {
+  :root { --ot-tabbar-height: 68px; }
+  html { -webkit-text-size-adjust: 100%; scroll-padding-top: 92px; }
+  body { padding-bottom: calc(var(--ot-tabbar-height) + env(safe-area-inset-bottom, 0px)); }
+  .ot-mobile-only { display: initial; }
+  .ot-desktop-only { display: none; }
+  .ot-home, .ot-account-page, .ot-session-page { min-height: calc(100svh - var(--ot-tabbar-height)); }
+  :is(.ot-home, .ot-account-page, .ot-session-page, .ot-bottom-nav) :is(button, a, [role="button"]) { touch-action: manipulation; }
+  :is(.ot-home, .ot-account-page, .ot-session-page) button { -webkit-tap-highlight-color: transparent; }
+  :is(.ot-home, .ot-account-page, .ot-session-page) :is(button, a):focus-visible { outline: 2px solid var(--ot-accent); outline-offset: 3px; }
+  .ot-header { position: sticky; top: 0; background: var(--ot-bg); border-bottom: 1px solid color-mix(in srgb, var(--ot-line) 60%, transparent); padding-top: env(safe-area-inset-top, 0px); }
+  .ot-header-inner, [data-theme="onetap-dark"] .ot-header-inner { min-height: 72px; padding: 10px 20px; }
+  .ot-brand, [data-theme="onetap-dark"] .ot-brand { font-size: 23px; line-height: 1.2; }
+  .ot-brand-mark { width: 29px; height: 29px; }
+  .ot-brand-network { display: block; font-size: 10px; line-height: 1.4; color: var(--ot-muted); margin: 3px 0 0 36px; }
+  [data-theme="onetap-dark"] .ot-brand-network { margin-left: 0; }
+  .ot-header-actions { gap: 6px; }
+  .ot-header-actions > .ot-network { display: none; }
+  .ot-header-actions .ot-icon-button { width: 44px; height: 44px; }
+  .ot-header-actions > .btn, .ot-header-actions > .dropdown > [role="button"] { min-height: 44px; padding: 10px; border-radius: 14px; }
+  .ot-header-actions > .dropdown { min-width: 0; }
+  .ot-header-actions .dropdown > [role="button"] .font-mono { max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
+  .ot-home-content { padding: 0 20px; }
+  .ot-main-composition, [data-theme="onetap-dark"] .ot-main-composition { padding-top: 24px; }
+  .ot-intro, .ot-featured { display: none; }
+  .ot-mobile-intro { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+  .ot-mobile-intro > div { min-width: 0; }
+  .ot-mobile-intro > div > span { color: var(--ot-muted); font-size: 12px; }
+  .ot-mobile-intro h1 { margin-top: 5px; font-size: 24px; font-weight: 750; letter-spacing: -.8px; line-height: 1.3; }
+  .ot-mobile-intro > a { display: grid; justify-items: center; align-content: center; gap: 4px; min-width: 52px; min-height: 48px; color: var(--ot-muted); font-size: 10px; }
+  .ot-mobile-intro > a svg { color: var(--ot-accent); }
+  .ot-mobile-pool { display: block; padding: 20px; border: 1px solid var(--ot-line); border-radius: 24px; background: #fffefa; }
+  .ot-mobile-pool-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--ot-muted); }
+  .ot-pool-phase { padding: 4px 9px; border-radius: 6px; color: var(--ot-accent); background: color-mix(in srgb, var(--ot-accent) 8%, transparent); font-size: 11px; }
+  .ot-mobile-prize { position: relative; margin: 15px 0 18px; }
+  .ot-mobile-prize > img { position: absolute; right: -4px; bottom: -9px; width: 80px; height: 80px; object-fit: contain; mix-blend-mode: multiply; mask-image: radial-gradient(ellipse at center, #000 42%, transparent 73%); }
+  .ot-mobile-prize .ot-amount { width: auto; max-width: calc(100% - 64px); padding: 0; }
+  .ot-mobile-prize .ot-amount strong { font-size: 52px; letter-spacing: -2.8px; line-height: 1.1; }
+  .ot-mobile-prize .ot-amount > span { font-size: 13px; letter-spacing: .5px; margin-top: 6px; color: var(--ot-muted); }
+  .ot-mobile-prize .ot-amount-long { max-width: 100%; padding-right: 0; }
+  .ot-mobile-prize .ot-amount-long strong { font-size: clamp(25px, 7vw, 36px); letter-spacing: -1px; overflow-wrap: anywhere; }
+  .ot-mobile-prize:has(.ot-amount-long) > img { display: none; }
+  .ot-mobile-pool > .ot-sample { margin: -6px 0 14px; }
+  .ot-mobile-pool-facts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; padding-top: 16px; border-top: 1px solid var(--ot-line); }
+  .ot-mobile-pool-facts > div { display: grid; align-content: start; gap: 7px; min-width: 0; }
+  .ot-mobile-pool-facts > div > span:first-child { color: var(--ot-muted); font-size: 11px; }
+  .ot-mobile-pool-facts strong { font-size: 17px; font-weight: 650; overflow-wrap: anywhere; }
+  .ot-mobile-pool-facts strong small { font-size: 12px; font-weight: 500; }
+  .ot-mobile-pool-facts .ot-countdown { font-size: 18px; letter-spacing: .4px; line-height: 1.4; overflow-wrap: anywhere; }
+  .ot-mobile-pool-facts .ot-status-label { font-size: 15px; }
+  .ot-mobile-progress { margin: 22px 0 18px; }
+  .ot-mobile-progress > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--ot-muted); margin-bottom: 8px; }
+  .ot-mobile-progress b { color: var(--ot-ink); font-weight: 600; }
+  .ot-mobile-progress progress { display: block; width: 100%; height: 5px; border-radius: 8px; appearance: none; overflow: hidden; background: var(--ot-line); }
+  .ot-mobile-progress progress::-webkit-progress-bar { background: var(--ot-line); }
+  .ot-mobile-progress progress::-webkit-progress-value { background: var(--ot-accent); border-radius: 8px; }
+  .ot-mobile-progress progress::-moz-progress-bar { background: var(--ot-accent); border-radius: 8px; }
+  .ot-mobile-pool .ot-primary { min-height: 52px; font-size: 16px; padding: 12px 16px; border-radius: 14px; justify-content: space-between; }
+  .ot-mobile-pool .ot-primary > span { gap: 12px; flex-wrap: wrap; }
+  .ot-mobile-pool .ot-primary small { font-size: 11px; padding-left: 12px; }
+  .ot-mobile-pool .ot-primary > svg { flex-shrink: 0; width: 20px; }
+  .ot-mobile-pool .ot-rules-link { display: none; }
+  .ot-mobile-ticket { background: linear-gradient(150deg, #2a304b, #20253b); border-color: #414660; padding: 22px; border-radius: 20px; }
+  .ot-mobile-ticket .ot-mobile-prize { text-align: center; margin: 22px 0; }
+  .ot-mobile-ticket .ot-amount { max-width: 100%; align-items: center; }
+  .ot-mobile-ticket .ot-amount strong { color: #ffe6ce; font-size: 56px; }
+  .ot-mobile-ticket .ot-amount-long strong { font-size: clamp(25px, 7vw, 36px); }
+  .ot-mobile-ticket .ot-mobile-pool-facts { border-top-style: dashed; padding-top: 20px; }
+  .ot-mobile-ticket .ot-mobile-progress { margin-bottom: 22px; }
+  .ot-mobile-ticket .ot-primary { color: #181a2a; background: #ff826c; border-radius: 12px; }
+  .ot-more-pools, [data-theme="onetap-dark"] .ot-more-pools { margin-top: 26px; }
+  .ot-more-heading { display: flex; align-items: baseline; justify-content: space-between; font-size: 17px; font-weight: 700; margin-bottom: 10px; }
+  .ot-more-heading > span { font-size: 12px; font-weight: 400; color: var(--ot-muted); }
+  .ot-pool-row, [data-theme="onetap-dark"] .ot-pool-row { min-height: 98px; padding: 16px 0; gap: 14px; border-width: 0 0 1px; border-radius: 0; background: transparent; margin: 0; }
+  .ot-pool-row > div { min-width: 0; flex: 1; }
+  .ot-pool-row p, [data-theme="onetap-dark"] .ot-pool-row p { display: block; margin: 5px 0; line-height: 1.3; }
+  .ot-pool-row p strong, [data-theme="onetap-dark"] .ot-pool-row p strong { font-size: 25px; letter-spacing: -.7px; overflow-wrap: anywhere; }
+  .ot-pool-row p span { font-size: 12px; }
+  .ot-pool-row .ot-muted, [data-theme="onetap-dark"] .ot-pool-row .ot-muted { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+  .ot-row-phase { color: var(--ot-accent); }
+  .ot-small-pool-icon { width: 28px; }
+  .ot-row-arrow { flex-shrink: 0; }
+  .ot-data-note, [data-theme="onetap-dark"] .ot-data-note { margin: 18px 0 28px; font-size: 11px; line-height: 1.7; }
+  .ot-data-note .ot-text-button { min-height: 44px; }
+  .ot-fairness { padding: 24px 0; scroll-margin-top: 88px; }
+  .ot-fairness h2 { font-size: 20px; margin: 12px 0 8px; }
+  .ot-fairness p { font-size: 13px; }
+  .ot-rule-list { margin-top: 16px; gap: 0; }
+  .ot-mobile-section { min-width: 0; }
+  .ot-mobile-section-heading { display: block; }
+  .ot-mobile-section-heading button { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 16px; min-height: 56px; text-align: left; color: var(--ot-ink); font-size: 14px; font-weight: 600; }
+  .ot-mobile-section-heading svg { flex-shrink: 0; color: var(--ot-muted); transition: transform .15s; }
+  .ot-mobile-section-heading [aria-expanded="true"] svg { transform: rotate(180deg); }
+  .ot-mobile-section-content[data-expanded="false"] { display: none; }
+  .ot-rule-list > .ot-mobile-section + .ot-mobile-section { border-top: 1px solid var(--ot-line); }
+  .ot-rule-list h2 { margin: 0; }
+  .ot-rule-list article { padding: 0 0 18px; }
+  .ot-rule-list article > svg, .ot-rule-list article h3 { display: none; }
+  .ot-footer { gap: 0; padding: 20px 0; font-size: 11px; }
+  .ot-footer a { min-height: 44px; }
+  .ot-bottom-nav { min-height: var(--ot-tabbar-height); padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px)); background: var(--ot-bg); }
+  .ot-bottom-nav a { min-height: 54px; gap: 4px; font-size: 10px; }
+  .ot-bottom-nav a[aria-current]::after { display: none; }
+  .ot-bottom-nav a svg { box-sizing: content-box; padding: 4px 16px; border-radius: 12px; width: 21px; height: 21px; }
+  .ot-bottom-nav a[aria-current] svg { background: color-mix(in srgb, var(--ot-accent) 10%, transparent); }
+  .ot-settings .modal-box, .ot-preview-dialog .modal-box { max-height: 88dvh; padding: 22px 20px calc(22px + env(safe-area-inset-bottom, 0px)); border-radius: 24px 24px 0 0; overscroll-behavior: contain; }
+  .ot-settings .ot-icon-button { width: 44px; height: 44px; }
+  .ot-settings .select { min-height: 44px; }
+
+  /* Account pages: title, primary task, activity, then secondary information. */
+  .ot-account-content { padding: 24px 20px 28px; }
+  .ot-records-panel, .ot-balance-panel { background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+  .ot-records-panel > .card-body, .ot-balance-panel > .card-body { padding: 0; gap: 20px; }
+  .ot-page-title { align-items: flex-start; }
+  .ot-page-title > div:first-child { display: none; }
+  .ot-page-title h1 { font-size: 25px; line-height: 1.3; letter-spacing: -.7px; }
+  .ot-page-title p { font-size: 12px; line-height: 1.75; margin-top: 8px; color: var(--ot-muted); }
+  .ot-connect-state { display: flex; align-items: center; flex-direction: column; gap: 18px; padding: 36px 22px; border: 1px solid var(--ot-line); border-radius: 22px; text-align: center; background: var(--ot-surface); }
+  .ot-connect-state > svg { color: var(--ot-accent); }
+  .ot-connect-state > p { color: var(--ot-muted); font-size: 14px; line-height: 1.7; }
+  .ot-connect-state > button { min-height: 48px; min-width: 160px; font-size: 14px; border-radius: 12px; }
+  .ot-record-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-top: 4px; }
+  .ot-record-stats > div { background: transparent; border: 0; border-radius: 0; padding: 14px 8px; text-align: center; }
+  .ot-record-stats > div:first-child { grid-column: 1 / 3; padding: 8px 0; text-align: left; font-size: 11px; color: var(--ot-muted); }
+  .ot-record-stats > div:not(:first-child) { grid-row: 2; border-top: 1px solid var(--ot-line); border-bottom: 1px solid var(--ot-line); }
+  .ot-record-stats > div > strong { display: block; color: var(--ot-ink); font-size: 25px; line-height: 1.3; font-variant-numeric: tabular-nums; }
+  .ot-record-stats > div > span.ot-mobile-only { display: block; font-size: 11px; font-weight: 400; color: var(--ot-muted); margin-top: 4px; }
+  .ot-record-stats > button { grid-column: 3; grid-row: 1; min-height: 44px; justify-self: end; }
+  .ot-record-groups { padding: 0; border: 0; border-radius: 0; background: transparent; }
+  .ot-record-groups > div { border: 1px solid var(--ot-line); border-radius: 18px; padding: 0 16px; margin-bottom: 12px; background: var(--ot-surface); }
+  .ot-records-panel .grid > div { overflow-wrap: anywhere; }
+  .ot-account-footer { background: transparent; padding: 0 20px; }
+  .ot-account-footer > .ot-mobile-section > .ot-mobile-section-content { padding-bottom: 16px; }
+  .ot-account-footer > div:last-child { padding: 0; }
+  .ot-account-footer .divider { display: none; }
+  .ot-account-footer a { display: inline-flex; align-items: center; min-height: 44px; }
+  .ot-account-footer p, .ot-account-footer a { color: var(--ot-muted); }
+  .ot-treasury-center { display: flex; flex-direction: column; gap: 24px; }
+  .ot-treasury-center > * + * { margin-top: 0; }
+  .ot-treasury-grid { display: contents; }
+  .ot-balance-panel { order: 0; }
+  .ot-balance-panel > .card-body > div:first-child { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+  .ot-balance-panel > .card-body > div:first-child > button { width: 44px; height: 44px; padding: 0; border-radius: 50%; }
+  .ot-treasury-center > .ot-activity-list { order: 1; }
+  .ot-treasury-secondary { order: 2; }
+  .ot-treasury-secondary > * + * { margin-top: 0; border-top: 1px solid var(--ot-line); }
+  .ot-treasury-secondary .card { border: 0; background: transparent; box-shadow: none; }
+  .ot-treasury-secondary .card-body { padding: 0 0 20px; }
+  .ot-treasury-secondary .card-body > h2 { display: none; }
+  .ot-balance-value { padding: 24px 20px; border-radius: 22px; background: var(--ot-accent); color: var(--ot-on-accent); }
+  .ot-balance-value p, .ot-balance-value span { color: inherit; }
+  .ot-balance-value p:first-child { opacity: .85; font-size: 12px; }
+  .ot-balance-value p:nth-child(2) { font-size: 34px; overflow-wrap: anywhere; }
+  .ot-balance-value p:last-child { opacity: .8; font-size: 12px; line-height: 1.6; }
+  .ot-withdraw-form { padding: 0; border: 0; border-radius: 0; background: transparent; }
+  .ot-withdraw-form > button { min-height: 50px; border-radius: 14px; }
+  .ot-activity-list { border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+  .ot-activity-list > .card-body { padding: 0; }
+  .ot-activity-list h2 { font-size: 18px; }
+  .ot-activity-list .card-body > div:first-child { flex-direction: row; align-items: flex-start; }
+  .ot-activity-list .card-body > div:first-child > div { min-width: 0; flex: 1; }
+  .ot-activity-list .card-body > div:first-child > div > p { font-size: 12px; line-height: 1.6; }
+  .ot-activity-list .card-body > div:first-child > button { min-height: 44px; flex-shrink: 0; }
+  .ot-activity-row { padding: 16px 0; border-width: 0 0 1px; border-radius: 0; background: transparent; }
+  .ot-activity-row > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .9fr); gap: 12px; }
+  .ot-activity-row > div > div:last-child { text-align: right; overflow-wrap: anywhere; }
+  .ot-activity-row .text-lg { font-size: 16px; }
+  .ot-activity-row > a { min-height: 44px; margin-top: 0; }
+
+  /* Session detail uses local section navigation and one thumb-reachable purchase action. */
+  .ot-session-page { padding: env(safe-area-inset-top, 0px) 20px 24px; }
+  .ot-session-topbar { display: flex; align-items: center; gap: 10px; min-height: 64px; }
+  .ot-session-topbar > button { margin: 0 0 0 -12px; min-height: 44px; }
+  .ot-session-topbar > span { font-size: 15px; font-weight: 650; }
+  .ot-session-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 0 0 20px; border-bottom: 1px solid var(--ot-line); }
+  .ot-session-tabs a { display: grid; place-items: center; min-height: 48px; font-size: 12px; color: var(--ot-muted); text-align: center; }
+  .ot-session-tabs a { border-radius: 10px 10px 0 0; }
+  .ot-session-tabs a:focus { color: var(--ot-accent); background: var(--ot-surface); }
+  .ot-session-value .ot-mobile-only > small { display: block; font-size: 13px; letter-spacing: .5px; margin-top: 8px; color: var(--ot-muted); }
+  .ot-session-page .card { border-radius: 18px; }
+  .ot-session-page .card-body { padding: 20px; gap: 12px; }
+  .ot-session-summary { margin-bottom: 18px; }
+  .ot-session-summary .card-body > div:first-child { gap: 12px; align-items: flex-start; }
+  .ot-session-summary .card-body > div:first-child > div { min-width: 0; }
+  .ot-session-summary .avatar { display: none; }
+  .ot-session-summary h1 { font-size: 20px; overflow-wrap: anywhere; }
+  .ot-session-summary .badge { flex-shrink: 0; margin-top: 4px; font-size: 10px; }
+  .ot-session-value { text-align: left; padding: 20px 0 0; border-width: 1px 0 0; border-radius: 0; background: transparent; margin-top: 4px; }
+  .ot-session-value > p:nth-child(2) { font-size: clamp(24px, 7vw, 32px); line-height: 1.3; overflow-wrap: anywhere; letter-spacing: -.8px; }
+  .ot-session-summary .card-body > .flex:last-child { flex-wrap: wrap; justify-content: flex-start; font-size: 12px; }
+  .ot-session-terms { background: transparent; border: 0; }
+  .ot-session-terms > .card-body { padding: 0; display: grid; grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+  .ot-session-terms h2 { grid-column: 1 / -1; margin: 4px 0 8px; font-size: 16px; }
+  .ot-session-terms .card-body > .flex { display: grid; gap: 8px; border: 0; font-size: 12px; min-width: 0; }
+  .ot-session-terms .card-body > .flex > span:last-child { font-size: 15px; overflow-wrap: anywhere; }
+  .ot-session-terms .alert { grid-column: 1 / -1; }
+  .ot-session-dock { position: fixed; bottom: calc(var(--ot-tabbar-height) + env(safe-area-inset-bottom, 0px)); left: 0; right: 0; z-index: 25; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); align-items: center; gap: 12px; padding: 12px 20px; background: var(--ot-bg); border-top: 1px solid var(--ot-line); }
+  .ot-session-dock-price { display: grid; gap: 4px; min-width: 0; }
+  .ot-session-dock-price > span { font-size: 11px; color: var(--ot-muted); }
+  .ot-session-dock-price > strong { font-size: 14px; color: var(--ot-accent); overflow-wrap: anywhere; }
+  .ot-session-dock > button { margin: 0; min-height: 48px; height: auto; font-size: 15px; padding: 12px; border-radius: 12px; }
+  .ot-session-dock > button svg { display: none; }
+  .ot-has-session-action { padding-bottom: 112px; }
+  .ot-session-phase .card-body { display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: start; text-align: left; padding: 18px; gap: 6px 12px; }
+  .ot-session-phase svg { width: 28px; height: 28px; grid-row: 1 / 4; margin: 0; }
+  .ot-session-phase p { grid-column: 2; margin: 0; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+  .ot-session-phase p:first-of-type { font-size: 15px; }
+  #session-entries, #session-funds, #session-overview { scroll-margin-top: 20px; }
+  #session-entries { margin-top: 24px; }
+  #session-entries .card { background: transparent; border: 0; }
+  #session-entries .card-body { padding: 0; }
+  #session-entries h3 { font-size: 18px; }
+  #session-entries .ot-history-icon { display: none; }
+  #session-entries .card-body > div:first-child p { font-size: 12px; line-height: 1.7; color: var(--ot-muted); }
+  .ot-session-connect { padding: 16px; background: var(--ot-surface); border-radius: 14px; line-height: 1.7; }
+  .ot-session-connect > button { flex-shrink: 0; min-height: 44px; }
+  #session-funds { margin-top: 24px; border-top: 1px solid var(--ot-line); }
+  #session-funds .card { margin-top: 0; }
+  #session-funds .card-body > div:first-child h3 { font-size: 16px; }
+  .ot-account-page .btn-sm, .ot-session-page .btn-sm { min-height: 44px; height: auto; }
+}
+@media (pointer: coarse) {
+  input, select, textarea { font-size: max(16px, 1em); }
+}
+@media (hover: none) {
+  .ot-icon-button:hover { background: transparent; color: var(--ot-muted); }
+  .ot-primary:hover { filter: none; }
+  .ot-pool-row:hover .ot-row-arrow { transform: none; }
+}
+@media (max-width: 359px) {
+  .ot-header-inner, [data-theme="onetap-dark"] .ot-header-inner { padding-inline: 14px; }
+  .ot-brand, [data-theme="onetap-dark"] .ot-brand { font-size: 20px; }
+  .ot-brand-mark { width: 25px; height: 25px; }
+  .ot-brand-network { margin-left: 32px; }
+  .ot-header-actions { gap: 0; }
+  .ot-home-content, .ot-account-content, .ot-session-page { padding-inline: 14px; }
+  .ot-mobile-pool { padding: 17px; }
+  .ot-mobile-intro h1 { font-size: 22px; }
+  .ot-mobile-prize .ot-amount strong { font-size: 44px; }
+  .ot-mobile-prize .ot-amount-long strong { font-size: 25px; }
+  .ot-mobile-pool .ot-primary small { display: none; }
+}

@@ -82,7 +82,7 @@ export function TreasuryActivityList({
   const copy = useOneTapCopy()
 
   return (
-    <section className="card border border-base-content/5 bg-base-200">
+    <section className="ot-activity-list card border border-base-content/5 bg-base-200">
       <div className="card-body gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -124,7 +124,7 @@ export function TreasuryActivityList({
               return (
                 <div
                   key={`${record.transactionHash}-${record.logIndex}`}
-                  className="rounded-2xl border border-base-content/5 bg-base-100/70 p-4"
+                  className="ot-activity-row rounded-2xl border border-base-content/5 bg-base-100/70 p-4"
                 >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">

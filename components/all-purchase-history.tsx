@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { WalletButton } from "@/components/wallet-button"
 import { useEffect, useMemo, useState } from "react"
 import {
   ArrowUpRight,
@@ -323,9 +324,9 @@ export function AllPurchaseHistory() {
 
   if (status !== "connected") {
     return (
-      <div className="card border border-base-content/5 bg-base-200">
+      <div className="ot-records-panel card border border-base-content/5 bg-base-200">
         <div className="card-body gap-3">
-          <div className="flex items-center gap-3">
+          <div className="ot-page-title flex items-center gap-3">
             <div className="rounded-2xl bg-primary/10 p-2.5 text-primary">
               <History className="h-5 w-5" />
             </div>
@@ -334,19 +335,17 @@ export function AllPurchaseHistory() {
               <p className="text-sm text-base-content/60">{t.session.allPurchaseHistoryDesc}</p>
             </div>
           </div>
-          <div className="alert alert-info py-3">
-            <span className="text-sm">{t.session.connectToViewAllRecords}</span>
-          </div>
+          <div className="ot-connect-state"><Ticket size={32} aria-hidden="true" /><p>{t.session.connectToViewAllRecords}</p><WalletButton /></div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="card border border-base-content/5 bg-base-200">
+    <div className="ot-records-panel card border border-base-content/5 bg-base-200">
       <div className="card-body gap-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex items-center gap-3">
+          <div className="ot-page-title flex items-center gap-3">
             <div className="rounded-2xl bg-primary/10 p-2.5 text-primary">
               <History className="h-5 w-5" />
             </div>
@@ -355,18 +354,18 @@ export function AllPurchaseHistory() {
               <p className="text-sm text-base-content/60">{t.session.allPurchaseHistoryDesc}</p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          <div className="ot-record-stats flex flex-wrap items-center gap-2 lg:justify-end">
             <div className="rounded-full border border-base-content/10 bg-base-100 px-3 py-1 text-sm font-semibold">
               {t.rpc.network}: {CHAINS[chain].name}
             </div>
             <div className="rounded-full border border-base-content/10 bg-base-100 px-3 py-1 text-sm font-semibold">
-              {t.session.sessionCount.replace("{count}", groupedSessions.length.toString())}
+              <span className="ot-desktop-only">{t.session.sessionCount.replace("{count}", groupedSessions.length.toString())}</span><strong className="ot-mobile-only">{groupedSessions.length}</strong><span className="ot-mobile-only">{copy.sessionMetric}</span>
             </div>
             <div className="rounded-full border border-base-content/10 bg-base-100 px-3 py-1 text-sm font-semibold">
-              {t.session.ordersCount.replace("{count}", totalOrders.toString())}
+              <span className="ot-desktop-only">{t.session.ordersCount.replace("{count}", totalOrders.toString())}</span><strong className="ot-mobile-only">{totalOrders}</strong><span className="ot-mobile-only">{copy.orderMetric}</span>
             </div>
             <div className="rounded-full border border-primary/15 bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
-              {t.session.ticketsCount.replace("{count}", totalTickets.toString())}
+              <span className="ot-desktop-only">{t.session.ticketsCount.replace("{count}", totalTickets.toString())}</span><strong className="ot-mobile-only">{totalTickets}</strong><span className="ot-mobile-only">{copy.ticketMetric}</span>
             </div>
             <button
               className="btn btn-ghost btn-sm gap-2"
@@ -410,7 +409,7 @@ export function AllPurchaseHistory() {
         {groupedSessions.length > 0 && (
           <Accordion
             type="multiple"
-            className="rounded-3xl border border-base-content/5 bg-base-100/60 px-4"
+            className="ot-record-groups rounded-3xl border border-base-content/5 bg-base-100/60 px-4"
           >
             {groupedSessions.map((group) => {
               const totalPoolWei = group.session.ticketPrice * group.session.totalTickets

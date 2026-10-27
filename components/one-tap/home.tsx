@@ -15,6 +15,7 @@ import { useCountdown } from "@/hooks/use-countdown"
 import { useOneTapCopy } from "./navigation"
 import { PreviewDialog } from "./preview-dialog"
 import { ChainReadStatus, ChainCacheStatus } from "./chain-read-status"
+import { MobileSection } from "./mobile-section"
 import type { ReadErrorKind } from "@/lib/rpc/read-client"
 
 interface Pool {
@@ -67,6 +68,21 @@ function PoolAction({ pool, preview, onPreview }: { pool: Pool; preview: boolean
 function Amount({ pool }: { pool: Pool }) {
   return <div className={`ot-amount ${pool.amount.length > 7 ? "ot-amount-long" : ""}`}><strong>{pool.amount}</strong><span>{pool.symbol}</span></div>
 }
+function MobilePool({ pool, preview, dark, onPreview }: { pool: Pool; preview: boolean; dark: boolean; onPreview: () => void }) {
+  const copy = useOneTapCopy()
+  const phase = pool.state === "active" ? copy.accepting : pool.state === "upcoming" ? copy.upcoming : copy[pool.state]
+  return <section className={`ot-mobile-pool ${dark ? "ot-mobile-ticket" : "ot-mobile-paper"}`} aria-label={copy.featured}>
+    <div className="ot-mobile-pool-top"><span>{copy.featured}</span><span className="ot-pool-phase">{phase}</span></div>
+    <div className="ot-mobile-prize"><Amount pool={pool} />{!dark && <Image src="/images/theme-one-coin.png" width={96} height={96} alt="" />}</div>
+    {preview && <span className="ot-sample">{copy.sample}</span>}
+    <div className="ot-mobile-pool-facts">
+      <div><span>{copy.each}</span><strong>{pool.price} <small>{pool.symbol}</small></strong></div>
+      <div><span>{pool.state === "upcoming" ? copy.starts : copy.deadline}</span><Deadline pool={pool} preview={preview} /></div>
+    </div>
+    <div className="ot-mobile-progress"><div><span>{copy.sold} <b>{pool.sold.toLocaleString()} / {pool.total.toLocaleString()}</b></span><span>{copy.remaining} <b>{Math.max(0, pool.total - pool.sold).toLocaleString()}</b></span></div><progress aria-label={copy.sold} value={pool.sold} max={Math.max(1, pool.total)} /></div>
+    <PoolAction pool={pool} preview={preview} onPreview={onPreview} />
+  </section>
+}
 function ThemeOnePool({ pool, preview, onPreview }: { pool: Pool; preview: boolean; onPreview: () => void }) {
   const copy = useOneTapCopy()
   return <section className="ot-featured ot-paper-pool" aria-label={copy.featured}>
@@ -109,8 +125,9 @@ function ThemeTwoPool({ pool, preview, onPreview }: { pool: Pool; preview: boole
 function MorePools({ pools, preview, onPreview }: { pools: Pool[]; preview: boolean; onPreview: (pool: Pool) => void }) {
   const copy = useOneTapCopy()
   return <section className="ot-more-pools" aria-label={copy.more}>
+    <h2 className="ot-mobile-only ot-more-heading">{copy.more}<span>{pools.length}</span></h2>
     {pools.map(pool => {
-      const content = <><Coins className="ot-small-pool-icon" aria-hidden="true" /><div><span className="ot-muted">{preview ? copy.small : copy.live}</span><p><strong>{pool.amount}</strong> <span>{pool.symbol}</span></p><small>{copy.each} {pool.price} {pool.symbol}</small></div><ChevronRight className="ot-row-arrow" aria-hidden="true" /></>
+      const content = <><Coins className="ot-small-pool-icon" aria-hidden="true" /><div><span className="ot-muted">{preview ? copy.small : copy.live}<span className="ot-mobile-only ot-row-phase">{pool.state === "active" ? copy.accepting : pool.state === "upcoming" ? copy.upcoming : copy[pool.state]}</span></span><p><strong>{pool.amount}</strong> <span>{pool.symbol}</span></p><small>{copy.each} {pool.price} {pool.symbol}</small></div><ChevronRight className="ot-row-arrow" aria-hidden="true" /></>
       return preview ? <button className="ot-pool-row" key={pool.id} onClick={() => onPreview(pool)}>{content}</button> : <Link className="ot-pool-row" key={pool.id} href={`/session/${pool.id}`}>{content}</Link>
     })}
   </section>
@@ -119,7 +136,7 @@ function Rules() {
   const copy = useOneTapCopy()
   return <section id="rules" className="ot-fairness">
     <div><span className="ot-section-label"><ShieldCheck size={19} />{copy.fairness}</span><h2>{copy.fairnessTitle}</h2><p>{copy.fairnessIntro}</p></div>
-    <div className="ot-rule-list">{[{ title: copy.ruleA, body: copy.ruleAText, icon: Ticket }, { title: copy.ruleB, body: copy.ruleBText, icon: Clock3 }, { title: copy.ruleC, body: copy.ruleCText, icon: Wallet }].map(({ title, body, icon: Icon }) => <article key={title}><Icon size={22} /><div><h3>{title}</h3><p>{body}</p></div></article>)}</div>
+    <div className="ot-rule-list">{[{ title: copy.ruleA, body: copy.ruleAText, icon: Ticket }, { title: copy.ruleB, body: copy.ruleBText, icon: Clock3 }, { title: copy.ruleC, body: copy.ruleCText, icon: Wallet }].map(({ title, body, icon: Icon }) => <MobileSection title={title} key={title}><article><Icon size={22} /><div><h3>{title}</h3><p>{body}</p></div></article></MobileSection>)}</div>
   </section>
 }
 function Presentation({ pools, loading = false, preview, refresh, error = null, complete = true, scannedBlocks = 0, hasMore = false, loadMore, updatedAt = 0, showingCached = false }: { pools: Pool[]; loading?: boolean; preview: boolean; refresh?: () => void; error?: ReadErrorKind | null; complete?: boolean; scannedBlocks?: number; hasMore?: boolean; loadMore?: () => void; updatedAt?: number; showingCached?: boolean }) {
@@ -141,10 +158,11 @@ function Presentation({ pools, loading = false, preview, refresh, error = null, 
     <Navbar />
     <div className="ot-home-content">
       <div id="ongoing" className="ot-main-composition">
+        <div className="ot-mobile-only ot-mobile-intro"><div><span>{copy.tagline}</span><h1>{dark ? copy.darkB : copy.headlineB}</h1></div><a href="#rules" aria-label={copy.rules}><ShieldCheck size={20} /><span>{copy.how}</span></a></div>
         <section className="ot-intro" aria-label="One Tap">
           {dark ? <><Image className="ot-night-scene" src="/images/theme-two-scene.png" alt="" width={1536} height={1024} priority sizes="(max-width: 767px) 100vw, 600px" /><h1>{copy.darkA}<br />{copy.darkB}</h1><p>{copy.tagline}</p></> : <h1>{copy.headlineA}<br />{copy.headlineB}<span className="ot-headline-dot">.</span></h1>}
         </section>
-        {pool ? (dark ? <ThemeTwoPool pool={pool} preview={preview} onPreview={() => openPreview(pool)} /> : <ThemeOnePool pool={pool} preview={preview} onPreview={() => openPreview(pool)} />) : <section className="ot-pool-empty" aria-live="polite"><div className="ot-empty-icon">{loading ? <RefreshCw className="animate-spin" /> : <Coins />}</div><h2>{error ? copy.readFailed : loading ? copy.loading : complete ? copy.empty : copy.partialTitle}</h2><p>{error ? (error === "rate-limit" ? copy.rateLimited : error === "timeout" ? copy.readTimeout : copy.readUnavailable) : loading ? copy.loadingDesc : complete ? copy.emptyDesc : copy.partialNote}</p>{!loading && <button className="ot-primary" onClick={refresh}><RefreshCw size={18} />{copy.refresh}</button>}<a className="ot-rules-link" href="#rules">{copy.rules}<ArrowRight size={18} /></a></section>}
+        {pool ? <><MobilePool pool={pool} preview={preview} dark={dark} onPreview={() => openPreview(pool)} />{dark ? <ThemeTwoPool pool={pool} preview={preview} onPreview={() => openPreview(pool)} /> : <ThemeOnePool pool={pool} preview={preview} onPreview={() => openPreview(pool)} />}</> : <section className="ot-pool-empty" aria-live="polite"><div className="ot-empty-icon">{loading ? <RefreshCw className="animate-spin" /> : <Coins />}</div><h2>{error ? copy.readFailed : loading ? copy.loading : complete ? copy.empty : copy.partialTitle}</h2><p>{error ? (error === "rate-limit" ? copy.rateLimited : error === "timeout" ? copy.readTimeout : copy.readUnavailable) : loading ? copy.loadingDesc : complete ? copy.emptyDesc : copy.partialNote}</p>{!loading && <button className="ot-primary" onClick={refresh}><RefreshCw size={18} />{copy.refresh}</button>}<a className="ot-rules-link" href="#rules">{copy.rules}<ArrowRight size={18} /></a></section>}
         {pools.length > 1 && <MorePools pools={pools.slice(1)} preview={preview} onPreview={openPreview} />}
       </div>
       {!preview && <ChainReadStatus error={error} loading={loading} complete={complete} scannedBlocks={scannedBlocks} hasMore={hasMore} refresh={() => refresh?.()} loadMore={() => loadMore?.()} />}

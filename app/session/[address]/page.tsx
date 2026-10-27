@@ -7,6 +7,7 @@ import { ArrowLeft, Clock, ExternalLink, Ticket } from "lucide-react"
 import { ZeroAddress } from "ethers"
 import Link from "next/link"
 
+import { MobileSection } from "@/components/one-tap/mobile-section"
 import { ChainQueryStatus } from "@/components/chain-query-status"
 import { useOneTapCopy } from "@/components/one-tap/navigation"
 import { useT } from "@/lib/i18n/context"
@@ -25,7 +26,7 @@ import { BuyModal } from "@/components/buy-modal"
 import { CreatorPanel } from "@/components/creator-panel"
 import { PlayerClaimPanel } from "@/components/player-claim-panel"
 import { SessionTreasuryCard } from "@/components/session-treasury-card"
-import { formatTokenAmount, getPaymentTokenSymbol, toTokenNumber } from "@/lib/token-format"
+import { formatTokenValue, formatTokenAmount, getPaymentTokenSymbol, toTokenNumber } from "@/lib/token-format"
 
 // ETH to USDT rate for display
 const ETH_USDT_RATE = 2500
@@ -189,7 +190,7 @@ export default function SessionDetailPage() {
 
   if (sessionLoading && !resolvedSession) {
     return (
-      <main className="min-h-screen bg-base-100 py-6 px-4">
+      <main className="ot-session-page min-h-screen bg-base-100 py-6 px-4">
         <div className="max-w-2xl mx-auto">
           <button
             onClick={handleBack}
@@ -237,7 +238,7 @@ export default function SessionDetailPage() {
     )
   }
   
-  if (sessionError) return <main className="min-h-screen p-6"><div className="mx-auto max-w-2xl space-y-4">
+  if (sessionError) return <main className="ot-session-page min-h-screen p-6"><div className="mx-auto max-w-2xl space-y-4">
     <button className="btn btn-ghost btn-sm" onClick={handleBack}>{t.session.back}</button>
     <ChainQueryStatus error={sessionError} loading={sessionLoading} onRefresh={refreshSessionInfo} />
   </div></main>
@@ -255,19 +256,20 @@ export default function SessionDetailPage() {
   }
 
   return (
-    <main className="min-h-screen bg-base-100 py-6 px-4">
+    <main className={`ot-session-page min-h-screen bg-base-100 py-6 px-4 ${isCommitPhaseActive ? "ot-has-session-action" : ""}`}>
       <div className="max-w-2xl mx-auto">
         {/* Back button */}
-        <button 
+        <div className="ot-session-topbar"><button
           onClick={handleBack}
           className="btn btn-ghost btn-sm gap-2 mb-6"
         >
           <ArrowLeft className="h-4 w-4" />
           {t.session.back}
-        </button>
+        </button><span className="ot-mobile-only">{copy.sessionPage}</span></div>
+        <nav className="ot-session-tabs ot-mobile-only" aria-label={copy.sessionPage}><a href="#session-overview">{copy.sessionOverview}</a><a href="#session-entries">{copy.account}</a><a href="#session-funds">{copy.funds}</a></nav>
         
         {/* Session header */}
-        <div className="card bg-base-200 border border-base-content/5 mb-6">
+        <div id="session-overview" className="ot-session-summary card bg-base-200 border border-base-content/5 mb-6">
           <div className="card-body">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -309,14 +311,15 @@ export default function SessionDetailPage() {
             </div>
             
             {/* Prize value */}
-            <div className="bg-base-300/60 rounded-xl p-4 text-center mt-4 border border-base-content/5">
+            <div className="ot-session-value bg-base-300/60 rounded-xl p-4 text-center mt-4 border border-base-content/5">
               <p className="text-xs text-base-content/40 mb-1">{t.products.prizeValue}</p>
               <p className="text-2xl sm:text-3xl font-bold text-primary font-display">
-                {formatTokenAmount(
+                <span className="ot-desktop-only">{formatTokenAmount(
                   resolvedSession.ticketPrice * resolvedSession.totalTickets,
                   resolvedSession.paymentTokenDecimals,
                   tokenSymbol
-                )}
+                )}</span>
+                <span className="ot-mobile-only">{formatTokenValue(resolvedSession.ticketPrice * resolvedSession.totalTickets, resolvedSession.paymentTokenDecimals).replace(/\.?0+$/, "")}<small>{tokenSymbol}</small></span>
               </p>
               {isEth && (
                 <p className="text-sm text-base-content/40 mt-1">
@@ -330,7 +333,7 @@ export default function SessionDetailPage() {
               <div className="flex items-center justify-center gap-2 mt-4">
                 <Clock className="h-4 w-4 text-base-content/40" />
                 <span className="text-sm text-base-content/40">
-                  {isUpcoming ? t.session.notStarted : t.products.countdown}
+                  {isUpcoming ? copy.starts : copy.deadline}
                 </span>
                 <div className="flex items-center gap-1 font-display">
                   {days > 0 && (
@@ -360,7 +363,7 @@ export default function SessionDetailPage() {
         
         {/* Buy tickets card - simplified with modal */}
         {isCommitPhaseActive && (
-          <div className="card bg-base-200 border border-base-content/5">
+          <div className="ot-session-terms card bg-base-200 border border-base-content/5">
             <div className="card-body">
               <h2 className="card-title text-lg">{t.session.buyTickets}</h2>
               
@@ -401,6 +404,7 @@ export default function SessionDetailPage() {
               )}
               
               {/* Buy button - opens modal */}
+              <div className="ot-session-dock"><div className="ot-mobile-only ot-session-dock-price"><span>{copy.each}</span><strong>{formatTokenAmount(resolvedSession.ticketPrice, resolvedSession.paymentTokenDecimals, tokenSymbol)}</strong></div>
               <button
                 className="btn btn-primary btn-lg w-full mt-4 gap-2"
                 onClick={() => setBuyModalOpen(true)}
@@ -408,14 +412,14 @@ export default function SessionDetailPage() {
               >
                 <Ticket className="h-5 w-5" />
                 {isSoldOut ? t.session.allTicketsSold : t.session.buyNow}
-              </button>
+              </button></div>
             </div>
           </div>
         )}
         
         {/* Session starts later */}
         {isUpcoming && !isSettled && (
-          <div className="card bg-base-200 border border-info/30 mt-4">
+          <div className="ot-session-phase card bg-base-200 border border-info/30 mt-4">
             <div className="card-body text-center py-8">
               <Clock className="h-12 w-12 mx-auto text-info mb-4" />
               <p className="text-info text-lg font-bold">{t.session.notStarted}</p>
@@ -430,13 +434,13 @@ export default function SessionDetailPage() {
 
         {/* Misconfigured session timing */}
         {hasInvalidSchedule && (
-          <div className="card bg-base-200 border border-error/30 mt-4">
+          <div className="ot-session-phase card bg-base-200 border border-error/30 mt-4">
             <div className="card-body text-center py-8">
               <Clock className="h-12 w-12 mx-auto text-error mb-4" />
               <p className="text-error text-lg font-bold">{t.session.invalidSchedule}</p>
               {commitDeadlineLabel && (
                 <p className="text-xs text-base-content/40 mt-4">
-                  Commit Deadline: {commitDeadlineLabel}
+                  {copy.deadline}: {commitDeadlineLabel}
                 </p>
               )}
             </div>
@@ -445,14 +449,14 @@ export default function SessionDetailPage() {
 
         {/* Session ended message */}
         {!hasInvalidSchedule && !isUpcoming && !isCommitPhaseActive && !isSettled && (
-          <div className="card bg-base-200 border border-warning/30 mt-4">
+          <div className="ot-session-phase card bg-base-200 border border-warning/30 mt-4">
             <div className="card-body text-center py-8">
               <Clock className="h-12 w-12 mx-auto text-warning mb-4" />
               <p className="text-warning text-lg font-bold">{t.session.commitEnded}</p>
               <p className="text-sm text-base-content/60 mt-2">{t.session.waitingReveal}</p>
               {commitDeadlineLabel && (
                 <p className="text-xs text-base-content/40 mt-4">
-                  Commit Deadline: {commitDeadlineLabel}
+                  {copy.deadline}: {commitDeadlineLabel}
                 </p>
               )}
             </div>
@@ -502,13 +506,13 @@ export default function SessionDetailPage() {
         )}
 
         {resolvedSession && (
-          <SessionPurchaseHistory
+          <section id="session-entries"><SessionPurchaseHistory
             session={resolvedSession}
             refreshNonce={purchaseHistoryRefreshNonce}
-          />
+          /></section>
         )}
 
-        {resolvedSession && <SessionTreasuryCard session={resolvedSession} />}
+        {resolvedSession && <MobileSection anchorId="session-funds" title={copy.funds}><SessionTreasuryCard session={resolvedSession} /></MobileSection>}
         
         {/* Creator management panel */}
         {resolvedSession && !sessionLoading && (

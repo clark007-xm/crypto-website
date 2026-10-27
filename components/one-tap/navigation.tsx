@@ -41,6 +41,9 @@ export function OneTapNavbar() {
   const settings = useRef<HTMLDialogElement>(null)
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
+  useEffect(() => {
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "onetap-dark" ? "#141728" : "#f6f5ef")
+  }, [theme])
 
   const changeTheme = (next: "one" | "two") => {
     setTheme(next === "one" ? "onetap-light" : "onetap-dark")
@@ -54,7 +57,7 @@ export function OneTapNavbar() {
     <Suspense><QueryTheme /></Suspense>
     <header className="ot-header">
       <div className="ot-header-inner">
-        <OneTapBrand />
+        <div className="ot-brand-stack"><OneTapBrand /><span className="ot-mobile-only ot-brand-network">{chain === "sepolia" ? "Sepolia · " + copy.testnet : "Ethereum"}</span></div>
         <nav className="ot-desktop-nav" aria-label="One Tap">
           <Link href="/">{copy.pools}</Link>
           <Link href="/records">{copy.account}</Link>

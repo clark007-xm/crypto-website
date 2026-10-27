@@ -1,5 +1,6 @@
 "use client"
 
+import { WalletButton } from "@/components/wallet-button"
 import { useEffect, useMemo, useState, useRef } from "react"
 import { Check, Copy, ExternalLink, Eye, EyeOff, History, ShieldAlert, ShieldCheck, Ticket } from "lucide-react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
@@ -122,7 +123,7 @@ export function SessionPurchaseHistory({
       <div className="card mt-6 border border-base-content/5 bg-base-200">
         <div className="card-body gap-3">
           <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-primary/10 p-2.5 text-primary">
+            <div className="ot-history-icon rounded-2xl bg-primary/10 p-2.5 text-primary">
               <History className="h-5 w-5" />
             </div>
             <div>
@@ -130,9 +131,7 @@ export function SessionPurchaseHistory({
               <p className="text-sm text-base-content/60">{t.session.purchaseHistoryDesc}</p>
             </div>
           </div>
-          <div className="alert alert-info py-3">
-            <span className="text-sm">{t.session.connectToViewRecords}</span>
-          </div>
+          <div className="ot-session-connect"><p>{t.session.connectToViewRecords}</p><WalletButton /></div>
         </div>
       </div>
     )
@@ -144,7 +143,7 @@ export function SessionPurchaseHistory({
         <div className="card-body gap-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-primary/10 p-2.5 text-primary">
+              <div className="ot-history-icon rounded-2xl bg-primary/10 p-2.5 text-primary">
                 <History className="h-5 w-5" />
               </div>
               <div>
@@ -172,7 +171,7 @@ export function SessionPurchaseHistory({
       <div className="card-body gap-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-primary/10 p-2.5 text-primary">
+            <div className="ot-history-icon rounded-2xl bg-primary/10 p-2.5 text-primary">
               <History className="h-5 w-5" />
             </div>
             <div>

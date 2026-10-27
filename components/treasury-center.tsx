@@ -1,6 +1,8 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { MobileSection } from "@/components/one-tap/mobile-section"
+import { WalletButton } from "@/components/wallet-button"
 import { AlertTriangle, CheckCircle, RefreshCw, ShieldAlert, Wallet } from "lucide-react"
 import { formatEther, parseEther } from "ethers"
 import { useTransactionFlow } from "@/components/transaction-flow-provider"
@@ -129,12 +131,12 @@ export function TreasuryCenter() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-        <section className="card border border-base-content/5 bg-base-200">
+    <div className="ot-treasury-center space-y-6">
+      <div className="ot-treasury-grid grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+        <section className="ot-balance-panel card border border-base-content/5 bg-base-200">
         <div className="card-body gap-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-center gap-3">
+            <div className="ot-page-title flex items-center gap-3">
               <div className="rounded-2xl bg-primary/10 p-3 text-primary">
                 <Wallet className="h-6 w-6" />
               </div>
@@ -145,22 +147,21 @@ export function TreasuryCenter() {
             </div>
             <button
               className="btn btn-ghost btn-sm gap-2"
+              aria-label={t.treasury.refresh}
               onClick={() => { void refresh(); void refreshPartner(); }}
               disabled={loading || status !== "connected"}
             >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-              {t.treasury.refresh}
+              <span className="ot-desktop-only">{t.treasury.refresh}</span>
             </button>
           </div>
 
           {status !== "connected" ? (
-            <div className="alert alert-info py-3">
-              <span className="text-sm">{t.treasury.connectToView}</span>
-            </div>
+            <div className="ot-connect-state"><Wallet size={32} aria-hidden="true" /><p>{t.treasury.connectToView}</p><WalletButton /></div>
           ) : (
             <>
               {(balanceError || partnerError) && <p role="alert" className="text-sm text-error">{balanceError === "rate-limit" || partnerError === "rate-limit" ? copy.rateLimited : copy.readUnavailable}</p>}
-              <div className="rounded-3xl border border-primary/10 bg-primary/10 p-6">
+              <div className="ot-balance-value rounded-3xl border border-primary/10 bg-primary/10 p-6">
                 <p className="text-sm font-medium text-base-content/60">
                   {t.treasury.availableBalance}
                 </p>
@@ -173,7 +174,7 @@ export function TreasuryCenter() {
                 </p>
               </div>
 
-              <div className="rounded-3xl border border-base-content/5 bg-base-100/70 p-5">
+              <div className="ot-withdraw-form rounded-3xl border border-base-content/5 bg-base-100/70 p-5">
                 <label className="form-control gap-2">
                   <span className="label-text font-semibold">{t.treasury.withdrawAmount}</span>
                   <div className="join w-full">
@@ -236,8 +237,8 @@ export function TreasuryCenter() {
         </div>
         </section>
 
-        <div className="space-y-6">
-          <aside className="card border border-base-content/5 bg-base-200">
+        <div className="ot-treasury-secondary space-y-6">
+          <MobileSection title={t.treasury.partnerManagement}><aside className="card border border-base-content/5 bg-base-200">
             <div className="card-body gap-4">
               <h2 className="text-lg font-bold">{t.treasury.partnerManagement}</h2>
               <p className="text-sm text-base-content/60">{t.treasury.partnerManagementDesc}</p>
@@ -312,9 +313,9 @@ export function TreasuryCenter() {
                 </>
               )}
             </div>
-          </aside>
+          </aside></MobileSection>
 
-          <aside className="card border border-base-content/5 bg-base-200">
+          <MobileSection title={t.treasury.balanceSourcesTitle}><aside className="card border border-base-content/5 bg-base-200">
             <div className="card-body gap-4">
               <h2 className="text-lg font-bold">{t.treasury.balanceSourcesTitle}</h2>
               <p className="text-sm text-base-content/60">{t.treasury.balanceSourcesDesc}</p>
@@ -334,7 +335,7 @@ export function TreasuryCenter() {
                 ))}
               </div>
             </div>
-          </aside>
+          </aside></MobileSection>
         </div>
       </div>
 

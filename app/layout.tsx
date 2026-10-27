@@ -10,6 +10,7 @@ import { BottomNavigation } from "@/components/one-tap/navigation"
 
 import "./globals.css"
 import "./one-tap.css"
+import "./one-tap-mobile.css"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-space-grotesk" })
@@ -24,7 +25,10 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: "#0f172a",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#f6f5ef",
 }
 
 export default function RootLayout({
