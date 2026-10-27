@@ -21,6 +21,12 @@ export class SharedRead<T> {
       }
     }
   }
+  invalidate = (): Promise<void> => {
+    this.active?.controller.abort()
+    this.active = undefined
+    this.publish({ updatedAt: 0, error: null, loading: false, ...(this.owners ? {} : { value: null }) })
+    return this.owners ? this.refresh() : Promise.resolve()
+  }
   refresh = (): Promise<void> => {
     if (!this.owners) return Promise.resolve()
     if (this.active) return this.active.promise

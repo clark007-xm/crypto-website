@@ -512,7 +512,7 @@ export default function SessionDetailPage() {
         {resolvedSession && !sessionLoading && ticketsChecked && (
           <PlayerClaimPanel 
             session={resolvedSession} 
-            playerTicketCount={Number(playerTicketCount)}
+            playerTicketCount={playerTicketCount}
           />
         )}
       </div>

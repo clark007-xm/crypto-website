@@ -18,15 +18,25 @@ import {
   useWithdrawFromTreasury,
 } from "@/lib/contracts/hooks"
 import { useWallet } from "@/lib/wallet/context"
+import { useRpc } from "@/lib/rpc/context"
+import { useTransactionScope } from "@/lib/transactions/use-transaction-scope"
 
 function formatEth(value: bigint) {
   return formatTokenValue(value, 18, 6)
 }
 
 export function TreasuryCenter() {
+  const { status, address, chainId } = useWallet()
+  const { chain } = useRpc()
+  const scope = `${status}:${address?.toLowerCase() ?? ""}:${chainId}:${chain}`
+  const captureScope = useTransactionScope(scope)
+  return <TreasuryCenterContent key={scope} captureScope={captureScope} />
+}
+
+function TreasuryCenterContent({ captureScope }: { captureScope: ReturnType<typeof useTransactionScope> }) {
   const t = useT()
   const copy = useOneTapCopy()
-  const { status, address, shortAddress, chainId } = useWallet()
+  const { status, address, shortAddress, chainId, refreshBalance } = useWallet()
   const transactionFlow = useTransactionFlow()
   const { balance, loading, checked, refresh, error: balanceError } = useTreasuryBalance()
   const { withdraw, loading: withdrawing, error } = useWithdrawFromTreasury()
@@ -77,6 +87,7 @@ export function TreasuryCenter() {
   const handleWithdraw = async () => {
     if (!canWithdraw || parsedAmount === null) return
 
+    const isCurrent = captureScope()
     setSuccess(false)
     const tx = await withdraw(
       parsedAmount,
@@ -90,17 +101,18 @@ export function TreasuryCenter() {
       }).callbacks,
     )
 
-    if (tx) {
+    if (tx && isCurrent()) {
       setSuccess(true)
       setAmount("")
-      await refresh()
-      await refreshActivity()
+      // The write hook already refreshed Treasury and its activity in the original scope.
+      await refreshBalance()
     }
   }
 
   const handleDeposit = async () => {
     if (!canDeposit || parsedDepositAmount === null) return
 
+    const isCurrent = captureScope()
     setDepositSuccess(false)
     const ok = await deposit(
       parsedDepositAmount,
@@ -114,10 +126,10 @@ export function TreasuryCenter() {
       }).callbacks,
     )
 
-    if (ok) {
+    if (ok && isCurrent()) {
       setDepositSuccess(true)
       setDepositAmount("")
-      await Promise.all([refresh(), refreshActivity()])
+      await Promise.allSettled([refresh(), refreshActivity(), refreshBalance()])
     }
   }
 

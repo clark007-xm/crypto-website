@@ -89,7 +89,7 @@ function mountActivity(client,storage,options={}){
  const context={AbortController,useWallet:()=>({address,chainId:1,status:'connected'}),useChainReadClient:()=>client,getAddresses:()=>({treasury:address}),hasDeployedContracts:()=>true,
   ZeroAddress,SessionLogIndex,EMPTY_INDEX,createTreasuryLogReader,acceptsTreasuryLog,getBrowserIndexStorage:()=>storage,
   useMemo:fn=>fn(),useCallback:fn=>fn,useRef:current=>({current}),useState:value=>[value,()=>{}],useEffect:fn=>effects.push(fn),useSyncExternalStore:(_,get)=>get(),
-  TREASURY_INTERFACE:iface,parseTreasuryActivityEvent:()=>null,matchesTreasuryActivityRecord:()=>true};
+  trackContractRead(){},TREASURY_INTERFACE:iface,parseTreasuryActivityEvent:()=>null,matchesTreasuryActivityRecord:()=>true};
  vm.createContext(context);vm.runInContext(js,context);context.useTreasuryActivity(options);const cleanups=effects.map(fn=>fn());
  return ()=>cleanups.forEach(fn=>{if(typeof fn==='function')fn()});
 }

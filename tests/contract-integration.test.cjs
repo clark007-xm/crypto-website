@@ -11,6 +11,7 @@ const { prepareContractWrite, WriteContextError } = require('../lib/contracts/wr
 const { canAccessTestnet, allowedRpcChain, readFactoryAdmin } = require('../lib/rpc/admin-access.ts');
 const { readSessionStatus, sessionStatusKey } = require('../lib/contracts/session-status-cache.ts');
 const { formatTokenValue } = require('../lib/token-format.ts');
+const { waitForConfirmation } = require('../lib/transactions/wait-for-confirmation.ts');
 const account = '0x' + '1'.repeat(40), session = '0x' + '2'.repeat(40), other = '0x' + '3'.repeat(40);
 const jsonAbi = new Interface(require('../lib/contracts/abi-json/CommitRevealTreasury.json'));
 const runtimeAbi = new Interface(TREASURY_ABI);
@@ -89,9 +90,10 @@ const ast = ts.createSourceFile('hooks.ts', hookSource, ts.ScriptTarget.Latest, 
 const hookNames = ['useBuyTickets', 'useDepositToTreasury', 'useWithdrawFromTreasury', 'useCreateSession', 'useUnsoldSettlement', 'useCreatorAbsentSettlement', 'useRevealSession', 'useClaimPrincipalAndPenalty', 'useClaimPrincipalAndCompensationIfCreatorAbsent'];
 const helperNames = ['readSessionPurchaseState', 'getBuyWindowErrorMessage', 'formatTimestampForUser'];
 const code = ts.transpileModule(ast.statements.filter(n => ts.isFunctionDeclaration(n) && [...hookNames, ...helperNames].includes(n.name?.text)).map(n => n.getText(ast).replace(/^export /, '')).join('\n'), { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS } }).outputText;
-function actions(f, onStatic = () => {}) {
-  const sent = [], failures = [], price = parseEther('0.0001');
-  const context = { Date, BigInt, Error, Number, SESSION_ABI, TREASURY_ABI, SESSION_PAYMENT,
+function actions(f, onStatic = () => {}, onWait = async () => ({ status: 1, logs: [] })) {
+  const sent = [], failures = [], refreshes = [], price = parseEther('0.0001');
+  const context = { Date, BigInt, Error, Number, SESSION_ABI, TREASURY_ABI, SESSION_PAYMENT, waitForConfirmation,
+    refreshContractReads: async scope => { refreshes.push(scope); },
     useWallet: () => ({ chainId: 11155111, address: account }), useState: v => [v, () => {}], useCallback: f => f,
     useContractWriteGuard: () => chain => prepareContractWrite(chain, () => f.state),
     getAddresses: () => ({ factory: other, treasury: other }), detectFactoryAbiVersion: async () => 'current', getFactoryAbi: () => FACTORY_ABI,
@@ -101,12 +103,12 @@ function actions(f, onStatic = () => {}) {
       const contract = { unlockTimestamp: async () => BigInt(Math.floor(Date.now() / 1000) - 10), commitDurationSeconds: async () => 3600n,
         totalTickets: async () => 1000n, nextTicketIndex: async () => 10n, isSettled: async () => false, ticketPrice: async () => price };
       for (const method of ['playerBuyAndCommitTicket', 'partnerDeposit', 'withdraw', 'createSession', 'finalizeTicketsUnsoldSettlement', 'finalizeCreatorAbsentSettlement', 'reveal', 'creditPrincipalAndPenaltyIfTicketsUnsold', 'creditPrincipalAndCompensationIfCreatorAbsent']) {
-        contract[method] = Object.assign(async (...args) => { sent.push({ method, args }); return { hash: 'synthetic', wait: async () => ({ logs: [] }) }; }, { staticCall: async () => onStatic() });
+        contract[method] = Object.assign(async (...args) => { sent.push({ method, args }); const transaction = transactionFixture({ wait: () => onWait(transaction) }); return transaction; }, { staticCall: async () => onStatic() });
       }
       return contract;
     } };
   vm.createContext(context); vm.runInContext(code, context);
-  return { context, sent, failures, callbacks: { onError: e => failures.push(e) } };
+  return { context, sent, failures, refreshes, callbacks: { onError: e => failures.push(e) } };
 }
 const actionCases = [
   ['useBuyTickets', 'buyTickets', [session, 11155111, 3, '0x' + '4'.repeat(64), false]],
@@ -142,6 +144,75 @@ test('create action writes native ETH configuration and preserves the supplied w
   const a = actions(walletFixture()); const config = { ticketPrice: parseEther('0.0001'), totalTickets: 100, productInfoId: 1, partnerShareBps: 1000, platformFeeBps: 500, commitDurationSeconds: 3600, revealDurationSeconds: 600 };
   await a.context.useCreateSession().createSession(config, a.callbacks);
   assert.equal(a.sent.length, 1); assert.equal(a.sent[0].args[0].paymentToken, ZeroAddress); assert.equal(a.sent[0].args[0].ticketPrice, config.ticketPrice);
+});
+
+function transactionFixture(overrides = {}) {
+  return { hash: 'synthetic-original', from: account, to: other, data: '0x1234', value: 0n, nonce: 1,
+    chainId: 11155111n, wait: async () => ({ status: 1 }), ...overrides };
+}
+function replacementError(original, patch = {}) {
+  const replacement = transactionFixture({ ...original, hash: 'synthetic-replacement' });
+  return Object.assign(new Error('transaction was replaced'), { code: 'TRANSACTION_REPLACED', reason: 'repriced',
+    cancelled: false, replacement, receipt: { status: 1 }, ...patch });
+}
+test('confirmation accepts only a successful fee-only replacement of the same action', async () => {
+  const original = transactionFixture();
+  const accelerated = replacementError(original);
+  original.wait = async () => { throw accelerated; };
+  const hashes = [];
+  assert.equal(await waitForConfirmation(original, { onSubmitted: tx => hashes.push(tx.hash) }), accelerated.replacement);
+  assert.deepEqual(hashes, ['synthetic-replacement']);
+  const invalid = [
+    { cancelled: true, reason: 'cancelled' }, { reason: 'replaced' }, { receipt: { status: 0 } },
+    ...[{ data: '0xabcd' }, { value: 1n }, { to: session }, { from: session }, { nonce: 2 }, { chainId: 1n }]
+      .map(patch => ({ replacement: transactionFixture(patch) })),
+  ];
+  for (const patch of invalid) {
+    const rejected = replacementError(original, patch); original.wait = async () => { throw rejected; };
+    await assert.rejects(waitForConfirmation(original), error => error === rejected);
+  }
+  await assert.rejects(waitForConfirmation(transactionFixture({ wait: async () => null })));
+  await assert.rejects(waitForConfirmation(transactionFixture({ wait: async () => ({ status: 0 }) })));
+});
+test('both refund actions preflight eligibility and never submit a rejected or repeated claim', async () => {
+  for (const [hook, action, args] of actionCases.filter(([name]) => name.startsWith('useClaim'))) {
+    const failure = new Error('NoTicketsOwned');
+    const a = actions(walletFixture(), () => { throw failure; });
+    await a.context[hook]()[action](...args, a.callbacks);
+    assert.equal(a.sent.length, 0); assert.equal(a.failures[0], failure);
+  }
+});
+test('withdraw and both refund hooks confirm the replacement hash after wallet acceleration', async () => {
+  for (const [hook, action, args] of actionCases.filter(([name]) => name === 'useWithdrawFromTreasury' || name.startsWith('useClaim'))) {
+    const a = actions(walletFixture(), () => {}, async original => { throw replacementError(original); });
+    const stages = [];
+    const result = await a.context[hook]()[action](...args, {
+      onSubmitted: tx => stages.push('submitted:' + tx.hash), onConfirmed: tx => stages.push('confirmed:' + tx.hash),
+      onError: e => a.failures.push(e),
+    });
+    assert.equal(a.failures.length, 0, hook); assert.equal(result.hash, 'synthetic-replacement');
+    assert.deepEqual(stages, ['submitted:synthetic-original', 'submitted:synthetic-replacement', 'confirmed:synthetic-replacement']);
+    assert.equal(a.refreshes.length, 1); assert.equal(a.refreshes[0].address, account);
+    assert.equal(a.refreshes[0].chainId, 11155111); assert.equal(a.refreshes[0].treasuryAddress, other);
+    assert.equal(a.refreshes[0].sessionAddress, hook.startsWith('useClaim') ? session : undefined);
+  }
+});
+test('confirmed actions refresh their original wallet scope after switching accounts while pending', async () => {
+  for (const [hook, action, args] of actionCases.filter(([name]) => name === 'useWithdrawFromTreasury' || name.startsWith('useClaim'))) {
+    const f = walletFixture();
+    const a = actions(f, () => {}, async () => { f.live.account = other; f.state.address = other; return { status: 1 }; });
+    const result = await a.context[hook]()[action](...args, a.callbacks);
+    assert.ok(result, hook); assert.equal(a.failures.length, 0);
+    assert.equal(a.refreshes.length, 1); assert.equal(a.refreshes[0].address, account);
+  }
+});
+test('read refresh failure never turns a confirmed withdrawal or refund into transaction failure', async () => {
+  for (const [hook, action, args] of actionCases.filter(([name]) => name === 'useWithdrawFromTreasury' || name.startsWith('useClaim'))) {
+    const a = actions(walletFixture()); a.context.refreshContractReads = async () => { throw Error('RPC unavailable'); };
+    let confirmed = false;
+    const result = await a.context[hook]()[action](...args, { ...a.callbacks, onConfirmed: () => { confirmed = true; } });
+    assert.ok(result, hook); assert.equal(confirmed, true); assert.equal(a.failures.length, 0);
+  }
 });
 test('testnet is fail-closed and only the Factory admin gets access', () => {
   assert.equal(canAccessTestnet(true, true, account.toUpperCase(), account), true);

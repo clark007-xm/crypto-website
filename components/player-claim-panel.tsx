@@ -1,13 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { useRpc } from "@/lib/rpc/context"
+import { useTransactionScope } from "@/lib/transactions/use-transaction-scope"
+import { getRefundKind } from "@/lib/contracts/refund-eligibility"
 import { Gift, CheckCircle, AlertCircle } from "lucide-react"
 import { SessionNetworkNotice, useSessionWriteAccess } from "@/components/session-network-notice"
 import { useTransactionFlow } from "@/components/transaction-flow-provider"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import {
-  SESSION_SETTLEMENT_TYPES,
   useClaimPrincipalAndCompensationIfCreatorAbsent,
   useClaimPrincipalAndPenalty,
   type SessionConfigFromEvent,
@@ -16,10 +18,19 @@ import { formatTokenAmount, getPaymentTokenSymbol } from "@/lib/token-format"
 
 interface PlayerClaimPanelProps {
   session: SessionConfigFromEvent
-  playerTicketCount: number
+  playerTicketCount: bigint | number
+  onClaimSuccess?: () => Promise<void> | void
 }
 
-export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPanelProps) {
+export function PlayerClaimPanel(props: PlayerClaimPanelProps) {
+  const wallet = useWallet()
+  const { chain } = useRpc()
+  const scopeKey = `${wallet.status}:${wallet.address?.toLowerCase()}:${wallet.chainId}:${chain}:${props.session.chainId}:${props.session.sessionAddress.toLowerCase()}`
+  const captureScope = useTransactionScope(scopeKey)
+  return <PlayerClaimPanelContent key={scopeKey} {...props} captureScope={captureScope} />
+}
+
+export function PlayerClaimPanelContent({ session, playerTicketCount, onClaimSuccess, captureScope }: PlayerClaimPanelProps & { captureScope: () => () => boolean }) {
   const t = useT()
   const { address, shortAddress, status } = useWallet()
   const writeAccess = useSessionWriteAccess(session.chainId)
@@ -37,11 +48,21 @@ export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPane
   const [claimed, setClaimed] = useState(false)
   const [success, setSuccess] = useState(false)
 
-  const isUnsoldSettled = session.settlementType === SESSION_SETTLEMENT_TYPES.UNSOLD_TICKETS
-  const isCreatorAbsentSettled =
-    session.settlementType === SESSION_SETTLEMENT_TYPES.CREATOR_ABSENT
+  const [nowSeconds, setNowSeconds] = useState(() => BigInt(Math.floor(Date.now() / 1000)))
+  const ticketCount = BigInt(playerTicketCount)
+  const refundKind = getRefundKind(session, ticketCount, nowSeconds)
+  const deadline = session.ticketsSold < session.totalTickets ? session.commitDeadline : session.revealDeadline
+  useEffect(() => {
+    const tick = () => setNowSeconds(BigInt(Math.floor(Date.now() / 1000)))
+    tick()
+    if (session.isSettled) return
+    const remaining = Number(deadline * 1000n + 1000n) - Date.now()
+    if (remaining <= 0) return
+    const timer = setTimeout(tick, Math.min(remaining, 2_147_483_647))
+    return () => clearTimeout(timer)
+  }, [deadline, session.isSettled, nowSeconds])
 
-  if ((!isUnsoldSettled && !isCreatorAbsentSettled) || playerTicketCount === 0) {
+  if (!refundKind || ticketCount === 0n) {
     return null
   }
 
@@ -49,23 +70,25 @@ export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPane
     session.paymentToken,
     session.paymentTokenSymbol
   )
-  const principalAmountWei = session.ticketPrice * BigInt(playerTicketCount)
+  const principalAmountWei = session.ticketPrice * ticketCount
 
-  const slashBps = isCreatorAbsentSettled
+  const isCreatorAbsent = refundKind === "creator-absent"
+  const slashBps = isCreatorAbsent
     ? session.creatorAbsentPartnerDepositSlashBps
     : session.unsoldTicketsPartnerDepositSlashBps
   // The contract floors each ticket's compensation before multiplying by ticket count.
   const compensationPerTicketWei = (session.ticketPrice * BigInt(slashBps)) / 10000n
-  const compensationAmountWei = compensationPerTicketWei * BigInt(playerTicketCount)
+  const compensationAmountWei = compensationPerTicketWei * ticketCount
   const totalRefundWei = principalAmountWei + compensationAmountWei
-  const loading = isCreatorAbsentSettled ? creatorAbsentLoading : unsoldLoading
-  const error = isCreatorAbsentSettled ? creatorAbsentError : unsoldError
-  const description = isCreatorAbsentSettled
+  const loading = isCreatorAbsent ? creatorAbsentLoading : unsoldLoading
+  const error = isCreatorAbsent ? creatorAbsentError : unsoldError
+  const description = isCreatorAbsent
     ? t.session.claimCreatorAbsentDesc
     : t.session.claimRefundDesc
 
   const handleClaim = async () => {
     if (!address || claimed || !writeAccess.canWrite) return
+    const isCurrent = captureScope()
 
     const controller = transactionFlow.createController({
       chainId: session.chainId,
@@ -75,12 +98,13 @@ export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPane
         { label: t.tx.details, value: `${playerTicketCount} tickets` },
       ],
     })
-    const result = isCreatorAbsentSettled
+    const result = isCreatorAbsent
       ? await claimPrincipalAndCompensation(session.sessionAddress, session.chainId, controller.callbacks)
       : await claimPrincipalAndPenalty(session.sessionAddress, session.chainId, controller.callbacks)
-    if (result) {
+    if (result && isCurrent()) {
       setClaimed(true)
       setSuccess(true)
+      await onClaimSuccess?.()
     }
   }
 
@@ -104,7 +128,7 @@ export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPane
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-base-300/50 rounded-lg p-3">
             <p className="text-xs text-base-content/40">{t.session.yourTickets}</p>
-            <p className="font-bold text-lg">{playerTicketCount}</p>
+            <p className="font-bold text-lg">{ticketCount.toString()}</p>
           </div>
           <div className="bg-base-300/50 rounded-lg p-3">
             <p className="text-xs text-base-content/40">{t.session.principalAmount}</p>

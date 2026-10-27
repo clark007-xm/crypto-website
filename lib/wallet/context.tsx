@@ -40,6 +40,8 @@ export interface WalletContextValue {
   signer: JsonRpcSigner | null
   connect: () => Promise<void>
   disconnect: () => void
+  /** Refresh ETH after a confirmed transaction without applying results to another wallet. */
+  refreshBalance: () => Promise<void>
   /** Request wallet to switch to a specific chain */
   switchChain: (chainId: number) => Promise<boolean>
 }
@@ -62,6 +64,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [signer, setSigner] = useState<JsonRpcSigner | null>(null)
 
   const providerRef = useRef<BrowserProvider | null>(null)
+  const walletEpoch = useRef(0)
+  const connectedWalletRef = useRef<{ provider: BrowserProvider; address: string } | null>(null)
 
   /* ── detect injected provider on mount ── */
   useEffect(() => {
@@ -72,6 +76,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   /* ── populate state from connected wallet ── */
   const populateState = useCallback(async (ethProvider: BrowserProvider) => {
+    const epoch = ++walletEpoch.current
+    connectedWalletRef.current = null
     try {
       const s = await ethProvider.getSigner()
       const addr = await s.getAddress()
@@ -80,6 +86,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         ethProvider.getNetwork(),
       ])
 
+      if (epoch !== walletEpoch.current) return
+      connectedWalletRef.current = { provider: ethProvider, address: addr }
       providerRef.current = ethProvider
       setProvider(ethProvider)
       setSigner(s)
@@ -88,7 +96,21 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       setChainId(Number(network.chainId))
       setStatus("connected")
     } catch {
-      setStatus("disconnected")
+      if (epoch === walletEpoch.current) setStatus("disconnected")
+    }
+  }, [])
+
+  const refreshBalance = useCallback(async () => {
+    const wallet = connectedWalletRef.current
+    if (!wallet) return
+    const epoch = walletEpoch.current
+    try {
+      const bal = await wallet.provider.getBalance(wallet.address)
+      if (wallet === connectedWalletRef.current && epoch === walletEpoch.current) {
+        setBalance(formatEther(bal).slice(0, 8))
+      }
+    } catch {
+      // A failed refresh must not change an already-confirmed transaction into a failure.
     }
   }, [])
 
@@ -99,9 +121,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (saved !== "true") return
 
     const ethProvider = new BrowserProvider(window.ethereum)
+    const epoch = walletEpoch.current
     ethProvider
       .send("eth_accounts", [])
       .then((accounts: string[]) => {
+        if (epoch !== walletEpoch.current) return
         if (accounts.length > 0) {
           populateState(ethProvider)
         } else {
@@ -119,6 +143,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     const handleAccountsChanged = async (...args: unknown[]) => {
       const accounts = args[0] as string[]
       if (accounts.length === 0) {
+        walletEpoch.current++
+        connectedWalletRef.current = null
         setStatus("disconnected")
         setAddress(null)
         setBalance(null)
@@ -157,6 +183,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
+    walletEpoch.current++
+    connectedWalletRef.current = null
     setStatus("connecting")
     try {
       const ethProvider = new BrowserProvider(window.ethereum)
@@ -170,6 +198,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   /* ── disconnect ── */
   const disconnect = useCallback(() => {
+    walletEpoch.current++
+    connectedWalletRef.current = null
     setStatus("disconnected")
     setAddress(null)
     setBalance(null)
@@ -231,6 +261,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         signer,
         connect,
         disconnect,
+        refreshBalance,
         switchChain,
       }}
     >

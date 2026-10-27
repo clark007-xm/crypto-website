@@ -4,6 +4,7 @@ import { parseTreasuryActivityEvent, type TreasuryActivityRecord } from "./treas
 export type { TreasuryActivityRecord, TreasuryActivityKind, TreasuryActivityTone } from "./treasury-events";
 import { prepareContractWrite } from "./write-guard";
 import { SESSION_PAYMENT } from "./payment";
+import { refreshContractReads, trackContractRead, type ContractReadScope } from "./read-invalidation";
 import { verifiedDeploymentBlock } from "./verified-deployments";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -26,6 +27,7 @@ import { getBrowserIndexStorage } from "./browser-index-storage";
 import { PurchaseHistoryIndex, EMPTY_PURCHASE } from "./purchase-history-index";
 import { readSessionStatus, writeSessionStatus } from "./session-status-cache";
 import type { TransactionLifecycleCallbacks } from "@/lib/transactions/types";
+import { waitForConfirmation } from "@/lib/transactions/wait-for-confirmation";
 import { buildCreatorRevealPayload } from "@/lib/creator-session-secret";
 import { getReadableContractErrorMessage } from "./errors";
 import {
@@ -374,6 +376,7 @@ function useAccountRead(method: "balances" | "isPartner") {
         const raw = await client.send<string>("eth_call", [{ to: target, data: iface.encodeFunctionData(method, [address]) }, "latest"], signal);
         return iface.decodeFunctionResult(method, raw)[0] as bigint | boolean;
       });
+      if (method === "balances") trackContractRead({ chainId: client.chainId, address, treasuryAddress: target }, value);
       entries.set(key, value);
     }
     return value;
@@ -385,12 +388,16 @@ function useAccountRead(method: "balances" | "isPartner") {
 }
 
 const DETAIL_READS = new WeakMap<ChainReadClient, Map<string, SharedRead<unknown>>>();
-function useDetailRead<T>(client: ChainReadClient, key: string, enabled: boolean, read: (signal: AbortSignal) => Promise<T>) {
+function useDetailRead<T>(client: ChainReadClient, key: string, enabled: boolean, read: (signal: AbortSignal) => Promise<T>, scope?: Omit<ContractReadScope, "chainId">) {
   const resource = useMemo(() => {
     let entries = DETAIL_READS.get(client);
     if (!entries) { entries = new Map(); DETAIL_READS.set(client, entries); }
     let resource = entries.get(key);
-    if (!resource) { resource = new SharedRead(read); entries.set(key, resource); }
+    if (!resource) {
+      resource = new SharedRead(read);
+      if (scope) trackContractRead({ chainId: client.chainId, ...scope }, resource);
+      entries.set(key, resource);
+    }
     return resource as SharedRead<T>;
     // key describes every input captured by the reader; render-time closures must not restart it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -504,6 +511,7 @@ export function useWithdrawFromTreasury() {
       try {
         const write = await prepareWrite(chainId ?? 0);
         const currentSigner = write.signer;
+        const owner = await currentSigner.getAddress();
         const { treasury } = getAddresses(chainId);
         const contract = new Contract(treasury, TREASURY_ABI, currentSigner);
         await contract.withdraw.staticCall(amountWei);
@@ -513,9 +521,10 @@ export function useWithdrawFromTreasury() {
           amountWei,
         )) as ContractTransactionResponse;
         callbacks?.onSubmitted?.(tx);
-        await tx.wait();
-        callbacks?.onConfirmed?.(tx);
-        return tx;
+        const confirmed = await waitForConfirmation(tx, callbacks);
+        callbacks?.onConfirmed?.(confirmed);
+        await refreshContractReads({ chainId: chainId!, address: owner, treasuryAddress: treasury }).catch(() => {});
+        return confirmed;
       } catch (err) {
         callbacks?.onError?.(err);
         setError(getReadableContractErrorMessage(err, "Withdraw failed"));
@@ -541,7 +550,7 @@ export function useSessionTreasuryInfo(treasuryAddress: string | null, sessionAd
   const client = useChainReadClient();
   const enabled = Boolean(treasuryAddress && sessionAddress && isAddress(treasuryAddress) && isAddress(sessionAddress) && treasuryAddress !== ZeroAddress);
   const state = useDetailRead(client, `session-treasury:${treasuryAddress}:${sessionAddress}`, enabled,
-    signal => readSessionTreasury(client, treasuryAddress!, sessionAddress!, signal));
+    signal => readSessionTreasury(client, treasuryAddress!, sessionAddress!, signal), { sessionAddress, treasuryAddress });
   return { info: state.value, loading: state.loading, error: state.error, refresh: state.refresh };
 }
 
@@ -1163,7 +1172,7 @@ export function useSessionInfo(sessionAddress: string | null) {
   const client = useChainReadClient();
   const enabled = Boolean(sessionAddress && isAddress(sessionAddress) && sessionAddress !== ZeroAddress);
   const state = useDetailRead(client, `session-info:${sessionAddress?.toLowerCase()}`, enabled,
-    signal => readSessionDetails(client, sessionAddress!, signal));
+    signal => readSessionDetails(client, sessionAddress!, signal), { sessionAddress });
   const cachedCatalog = SESSION_CATALOG_CACHE.get(client.chainId)?.value.find(item => item.sessionAddress.toLowerCase() === sessionAddress?.toLowerCase());
   const info = useMemo(() => state.value ? { ...state.value, creationBlock: cachedCatalog?.creationBlock, creationBlockHash: cachedCatalog?.creationBlockHash } : null,
     [state.value, cachedCatalog?.creationBlock, cachedCatalog?.creationBlockHash]);
@@ -1175,7 +1184,7 @@ export function usePlayerTickets(sessionAddress: string | null) {
   const client = useChainReadClient();
   const enabled = status === "connected" && chainId === client.chainId && Boolean(address && sessionAddress && isAddress(sessionAddress));
   const state = useDetailRead(client, `ticket-count:${sessionAddress?.toLowerCase()}:${address?.toLowerCase()}`, enabled,
-    async signal => BigInt((await readContractValue(client, sessionAddress!, SESSION_INTERFACE, "ticketCounts", [address], signal))[0]));
+    async signal => BigInt((await readContractValue(client, sessionAddress!, SESSION_INTERFACE, "ticketCounts", [address], signal))[0]), { sessionAddress, address });
   return { tickets: state.value ?? 0n, loading: state.loading, error: state.error, checked: state.value !== null && !state.error, refresh: state.refresh };
 }
 
@@ -1418,6 +1427,17 @@ export function useTreasuryActivity({
     const reader = createTreasuryLogReader(client, treasury, { sessionAddress, userAddress: player }, scope.controller.signal);
     await index.sync(reader, { maxRanges: 3, revalidate: !older, shouldContinue: () => !scope.controller.signal.aborted });
   }, [canRead, index, client, treasury, sessionAddress, player]);
+  useMemo(() => {
+    const resource = { invalidate: async () => {
+      const scope = owner.current;
+      if (!canRead || scope?.index !== index || scope.controller.signal.aborted) return;
+      // A confirmed write must read a fresh tail after an older scan has drained.
+      await index.whenIdle();
+      if (owner.current === scope && !scope.controller.signal.aborted) await sync();
+    } };
+    trackContractRead({ chainId, address: player, treasuryAddress: treasury, sessionAddress }, resource);
+    return resource;
+  }, [canRead, chainId, index, player, treasury, sessionAddress, sync]);
   useEffect(() => {
     setVisible(limit);
     if (!canRead) return;
@@ -1971,7 +1991,7 @@ export function useRevealSession() {
 
 /**
  * Hook for players to claim principal and penalty compensation
- * when tickets are unsold and settlement has been triggered.
+ * after the commit deadline when tickets remain unsold.
  * Behavior:
  * - Player claims full principal (ticket cost)
  * - Player receives compensation from creator deposit based on unsold settlement ratio
@@ -1995,19 +2015,22 @@ export function useClaimPrincipalAndPenalty() {
       try {
         const write = await prepareWrite(targetChainId);
         const currentSigner = write.signer;
+        const owner = await currentSigner.getAddress();
         const contract = new Contract(
           sessionAddress,
           SESSION_ABI,
           currentSigner,
         );
+        await contract.creditPrincipalAndPenaltyIfTicketsUnsold.staticCall();
         await write.assertCurrent();
         callbacks?.onAwaitingSignature?.();
         const tx =
           (await contract.creditPrincipalAndPenaltyIfTicketsUnsold()) as ContractTransactionResponse;
         callbacks?.onSubmitted?.(tx);
-        await tx.wait();
-        callbacks?.onConfirmed?.(tx);
-        return tx;
+        const confirmed = await waitForConfirmation(tx, callbacks);
+        callbacks?.onConfirmed?.(confirmed);
+        await refreshContractReads({ chainId: targetChainId, address: owner, treasuryAddress: getAddresses(targetChainId).treasury, sessionAddress }).catch(() => {});
+        return confirmed;
       } catch (err) {
         callbacks?.onError?.(err);
         setError(getReadableContractErrorMessage(err, "Claim failed"));
@@ -2039,19 +2062,22 @@ export function useClaimPrincipalAndCompensationIfCreatorAbsent() {
       try {
         const write = await prepareWrite(targetChainId);
         const currentSigner = write.signer;
+        const owner = await currentSigner.getAddress();
         const contract = new Contract(
           sessionAddress,
           SESSION_ABI,
           currentSigner,
         );
+        await contract.creditPrincipalAndCompensationIfCreatorAbsent.staticCall();
         await write.assertCurrent();
         callbacks?.onAwaitingSignature?.();
         const tx =
           (await contract.creditPrincipalAndCompensationIfCreatorAbsent()) as ContractTransactionResponse;
         callbacks?.onSubmitted?.(tx);
-        await tx.wait();
-        callbacks?.onConfirmed?.(tx);
-        return tx;
+        const confirmed = await waitForConfirmation(tx, callbacks);
+        callbacks?.onConfirmed?.(confirmed);
+        await refreshContractReads({ chainId: targetChainId, address: owner, treasuryAddress: getAddresses(targetChainId).treasury, sessionAddress }).catch(() => {});
+        return confirmed;
       } catch (err) {
         callbacks?.onError?.(err);
         setError(getReadableContractErrorMessage(err, "Claim failed"));

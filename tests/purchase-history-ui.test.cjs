@@ -116,7 +116,8 @@ test('detail state failure displays retry instead of not-found or fabricated ses
 
 test('both refund settlements retain their ETH amounts and actionable claim panel', () => {
   for (const settlementType of [1, 2]) {
-    const session = { settlementType, chainId: 11155111, ticketPrice: 100000000000000n,
+    const session = { settlementType, isSettled: true, sessionAddress: '0x'+'2'.repeat(40), ticketsSold: 2n,
+      totalTickets: settlementType === 1 ? 10n : 2n, commitDeadline: 1n, revealDeadline: 2n, chainId: 11155111, ticketPrice: 100000000000000n,
       paymentToken: '0x'+'3'.repeat(40), paymentTokenDecimals: 18, paymentTokenSymbol: 'ETH',
       unsoldTicketsPartnerDepositSlashBps: 1000, creatorAbsentPartnerDepositSlashBps: 2000 };
     const html = renderToStaticMarkup(React.createElement(PlayerClaimPanel, { session, playerTicketCount: 2 }));
@@ -139,7 +140,8 @@ test('refund compensation rounds per ticket before multiplying, matching contrac
     { settlementType: 1, ticketPrice: 10009n, unsold: 0, absent: 5000, expected: '0.0000 ETH' },
   ];
   for (const example of cases) {
-    const session = { settlementType: example.settlementType, chainId: 11155111, ticketPrice: example.ticketPrice,
+    const session = { settlementType: example.settlementType, isSettled: true, sessionAddress: '0x'+'2'.repeat(40), ticketsSold: 3n,
+      totalTickets: example.settlementType === 1 ? 10n : 3n, commitDeadline: 1n, revealDeadline: 2n, chainId: 11155111, ticketPrice: example.ticketPrice,
       paymentToken: '0x'+'3'.repeat(40), paymentTokenDecimals: 18, paymentTokenSymbol: 'ETH',
       unsoldTicketsPartnerDepositSlashBps: example.unsold, creatorAbsentPartnerDepositSlashBps: example.absent };
     const html = renderToStaticMarkup(React.createElement(PlayerClaimPanel, { session, playerTicketCount: 3 }));
