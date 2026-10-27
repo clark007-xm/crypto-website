@@ -19,6 +19,9 @@ let connected = true;
 const originalLoad = Module._load;
 Module._load = function(request, parent, isMain) {
   if (request === '@/lib/contracts/hooks') return { useAllPurchaseHistory: () => state,
+    SESSION_SETTLEMENT_TYPES: { UNSOLD_TICKETS: 1, CREATOR_ABSENT: 2 },
+    useClaimPrincipalAndPenalty: () => ({ claimPrincipalAndPenalty() {}, loading: false, error: null }),
+    useClaimPrincipalAndCompensationIfCreatorAbsent: () => ({ claimPrincipalAndCompensation() {}, loading: false, error: null }),
     useSessionInfo: () => ({info:null,loading:false,error:'rate-limit',refresh(){}}),
     useSessionWinnerSelection: () => ({winner:null,logs:[],loading:false,error:null,complete:false,hasMore:false,refresh(){},loadMore(){}}),
     usePlayerTickets: () => ({tickets:0n,checked:false,loading:false,error:null,refresh(){}}),
@@ -31,6 +34,7 @@ Module._load = function(request, parent, isMain) {
   };
   if (request === 'next/navigation') return {useParams:()=>({address:'0x'+'1'.repeat(40)}),useRouter:()=>({push(){},back(){}})};
   if (request === '@/components/transaction-flow-provider') return {useTransactionFlow:()=>({})};
+  if (request === '@/components/session-network-notice') return { useSessionWriteAccess: () => ({ canWrite: connected }), SessionNetworkNotice: () => null };
   if (request === '@/lib/wallet/context') return { useWallet: () => ({ status: connected ? 'connected' : 'disconnected', address: null }) };
   if (request === '@/lib/rpc/context') return { useRpc: () => ({ chain: 'sepolia' }) };
   if (request === '@/lib/i18n/context') return { useT: () => zh, useLocale: () => ["zh", () => {}] };
@@ -38,9 +42,9 @@ Module._load = function(request, parent, isMain) {
   if (request.startsWith('@/')) request = path.join(__dirname, '..', request.slice(2));
   return originalLoad.call(this, request, parent, isMain);
 };
-let AllPurchaseHistory, TreasuryActivityList, TreasuryCenter, SessionDetailPage;
+let AllPurchaseHistory, TreasuryActivityList, TreasuryCenter, SessionDetailPage, PlayerClaimPanel;
 try { ({ AllPurchaseHistory } = require('../components/all-purchase-history.tsx')); ({ TreasuryActivityList } = require('../components/treasury-activity-list.tsx')); ({ TreasuryCenter } = require('../components/treasury-center.tsx')); SessionDetailPage=require('../app/session/[address]/page.tsx').default; }
-finally { Module._load = originalLoad; }
+finally { ({ PlayerClaimPanel } = require('../components/player-claim-panel.tsx')); Module._load = originalLoad; }
 function render(overrides = {}) {
   state = { records: [], loading: false, error: null, complete: false, scannedBlocks: 54000,
     catalogLoading: false, catalogScannedBlocks: 54000, updatedAt: 0, showingCached: false, hasMore: true, refresh() {}, loadMore() {}, ...overrides };
@@ -108,4 +112,22 @@ test('unreadable Treasury balance shows unknown, not a verified zero or no-balan
 
 test('detail state failure displays retry instead of not-found or fabricated session phase',()=>{
  const html=renderToStaticMarkup(React.createElement(SessionDetailPage));assert.ok(html.includes(copy.rateLimited));assert.ok(html.includes(copy.retryRead));assert.ok(!html.includes(zh.session.notFound));assert.ok(!html.includes(zh.session.waitingReveal));
+});
+
+test('both refund settlements retain their ETH amounts and actionable claim panel', () => {
+  for (const settlementType of [1, 2]) {
+    const session = { settlementType, chainId: 11155111, ticketPrice: 100000000000000n,
+      paymentToken: '0x'+'3'.repeat(40), paymentTokenDecimals: 18, paymentTokenSymbol: 'ETH',
+      unsoldTicketsPartnerDepositSlashBps: 1000, creatorAbsentPartnerDepositSlashBps: 2000 };
+    const html = renderToStaticMarkup(React.createElement(PlayerClaimPanel, { session, playerTicketCount: 2 }));
+    assert.ok(html.includes(zh.session.claimRefundPanel));
+    assert.ok(html.includes(zh.session.claimNow));
+    assert.ok(html.includes('0.0002 ETH'));
+    assert.ok(html.includes(settlementType === 1 ? '0.00002 ETH' : '0.00004 ETH'));
+    assert.ok(!html.includes('USDT'));
+    assert.ok(!html.includes('disabled=""'));
+    connected = false;
+    try { assert.ok(renderToStaticMarkup(React.createElement(PlayerClaimPanel, { session, playerTicketCount: 2 })).includes('disabled=""')); }
+    finally { connected = true; }
+  }
 });

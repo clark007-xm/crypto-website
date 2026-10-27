@@ -222,7 +222,7 @@ export const vi: Dictionary = {
     title: "T\u1EA1o b\u00E0n",
     subtitle: "C\u00E0i \u0111\u1EB7t tham s\u1ED1 v\u00E0 t\u1EA1o phi\u00EAn m\u1EDBi",
     ticketPrice: "Gi\u00E1 v\u00E9",
-    ticketPriceHint: "S\u1ED1 USDT c\u1EA7n cho m\u1ED7i v\u00E9",
+    ticketPriceHint: "Số ETH cần cho mỗi vé",
     totalTickets: "T\u1ED5ng v\u00E9",
     totalTicketsHint: "T\u1ED5ng s\u1ED1 v\u00E9 b\u00E1n, t\u1EF1 \u0111\u1ED9ng quay khi h\u1EBFt",
     commitDuration: "Th\u1EDDi gian mua",
@@ -391,7 +391,7 @@ export const vi: Dictionary = {
   },
   footer: {
     desc: "N\u1EC1n t\u1EA3ng x\u1ED5 s\u1ED1 blockchain c\u00F4ng b\u1EB1ng v\u00E0 minh b\u1EA1ch.",
-    descSub: "Ch\u1EC9 1 USDT \u0111\u1EC3 gi\u00E0nh gi\u1EA3i th\u01B0\u1EDFng crypto l\u1EDBn.",
+    descSub: "Tham gia bằng ETH. Tiền thưởng và hoàn tiền được ghi có trên chuỗi.",
     platform: "N\u1EC1n t\u1EA3ng",
     ongoing: "\u0110ang di\u1EC5n ra",
     history: "L\u1ECBch s\u1EED",

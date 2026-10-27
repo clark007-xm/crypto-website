@@ -3,14 +3,15 @@
 import { useState, useMemo, useEffect, useRef } from "react"
 import dynamic from "next/dynamic"
 import { X, Eye, EyeOff, Copy, RefreshCw, Ticket, Loader2, Check } from "lucide-react"
-import { hexlify, randomBytes, keccak256, toUtf8Bytes, ZeroAddress } from "ethers"
+import { hexlify, randomBytes, keccak256, toUtf8Bytes } from "ethers"
+import { SessionNetworkNotice, useSessionWriteAccess } from "@/components/session-network-notice"
 import { useTransactionFlow } from "@/components/transaction-flow-provider"
 import { ChainQueryStatus } from "@/components/chain-query-status"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import { getSessionPhaseState, useBuyTickets, useSessionInfo } from "@/lib/contracts/hooks"
 import type { SessionConfigFromEvent } from "@/lib/contracts/hooks"
-import { formatTokenAmount, getPaymentTokenSymbol, toTokenNumber } from "@/lib/token-format"
+import { formatTokenAmount, getPaymentTokenSymbol } from "@/lib/token-format"
 
 const ConnectModal = dynamic(
   () => import("./connect-modal").then((mod) => mod.ConnectModal)
@@ -20,7 +21,6 @@ interface BuyModalProps {
   isOpen: boolean
   onClose: () => void
   session: SessionConfigFromEvent
-  ethPrice?: number
   onPurchaseSuccess?: () => Promise<void> | void
 }
 
@@ -28,11 +28,11 @@ export function BuyModal({
   isOpen,
   onClose,
   session,
-  ethPrice = 2000,
   onPurchaseSuccess,
 }: BuyModalProps) {
   const t = useT()
   const { status, address, shortAddress, chainId } = useWallet()
+  const writeAccess = useSessionWriteAccess(session.chainId)
   const transactionFlow = useTransactionFlow()
   const { buyTickets, loading: buyLoading, error: buyError } = useBuyTickets()
   const { info: sessionInfo, error: sessionReadError, loading: sessionReading, refresh: refreshSessionRead } = useSessionInfo(isOpen ? session.sessionAddress : null)
@@ -92,14 +92,9 @@ export function BuyModal({
   const ticketsSold = Number(resolvedSession.ticketsSold)
   const availableTickets = Math.max(totalTickets - ticketsSold, 0)
   const isSoldOut = availableTickets <= 0
-  const isEth = resolvedSession.paymentToken === ZeroAddress
   const tokenSymbol = getPaymentTokenSymbol(
     resolvedSession.paymentToken,
     resolvedSession.paymentTokenSymbol
-  )
-  const ticketPriceValue = toTokenNumber(
-    resolvedSession.ticketPrice,
-    resolvedSession.paymentTokenDecimals
   )
   const ticketPriceLabel = formatTokenAmount(
     resolvedSession.ticketPrice,
@@ -112,8 +107,6 @@ export function BuyModal({
     resolvedSession.paymentTokenDecimals,
     tokenSymbol
   )
-  const totalCost = ticketPriceValue * quantity
-  const totalCostUsdt = totalCost * ethPrice
   
   // Reset state when modal opens
   useEffect(() => {
@@ -164,7 +157,7 @@ export function BuyModal({
   
   // Handle buy
   const handleBuy = async () => {
-    if (sessionReadError || sessionReading || !sessionInfo) return
+    if (sessionReadError || sessionReading || !sessionInfo || writeAccess.mismatch) return
     if (status !== "connected") {
       setConnectModalOpen(true)
       return
@@ -172,7 +165,7 @@ export function BuyModal({
     
     if (
       !session ||
-      !secret ||
+      writeAccess.mismatch || !secret ||
       !commitment ||
       !phase.isCommitPhaseActive ||
       hasInvalidSchedule ||
@@ -180,7 +173,6 @@ export function BuyModal({
       quantity <= 0
     ) return
 
-    const value = useBalance ? 0n : resolvedSession.ticketPrice * BigInt(quantity)
     const controller = transactionFlow.createController({
       chainId: resolvedSession.chainId ?? chainId,
       fields: [
@@ -195,10 +187,10 @@ export function BuyModal({
     
     const tx = await buyTickets(
       resolvedSession.sessionAddress,
+      resolvedSession.chainId,
       quantity,
       commitment,
       useBalance,
-      value,
       controller.callbacks
     )
     
@@ -325,6 +317,7 @@ export function BuyModal({
               </div>
             )}
             
+            <SessionNetworkNotice chainId={session.chainId} />
             {/* Quantity */}
             <div className="form-control">
               <label className="label">
@@ -460,11 +453,6 @@ export function BuyModal({
                   <p className="text-xl font-bold text-primary">
                     {totalCostLabel}
                   </p>
-                  {isEth && (
-                    <p className="text-xs text-base-content/40">
-                      ~{totalCostUsdt.toFixed(2)} USDT
-                    </p>
-                  )}
                 </div>
               </div>
             </div>
@@ -494,7 +482,7 @@ export function BuyModal({
               disabled={
                 Boolean(sessionReadError) || sessionReading || !sessionInfo ||
                 buyLoading ||
-                !secret ||
+                writeAccess.mismatch || !secret ||
                 !commitment ||
                 buySuccess ||
                 !phase.isCommitPhaseActive ||

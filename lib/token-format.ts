@@ -33,6 +33,11 @@ export function formatTokenValue(
     return `${sign}${groupedInteger}`
   }
 
+  // A nonzero wei amount must never be presented as a free/zero ETH amount.
+  if (integerPart === "0" && value !== 0n && !/[1-9]/.test(decimalPart.slice(0, fractionDigits))) {
+    const significantEnd = Math.min(decimals, decimalPart.search(/[1-9]/) + 4)
+    return `${sign}${groupedInteger}.${decimalPart.slice(0, significantEnd).replace(/0+$/, "")}`
+  }
   const fixedDecimal = `${decimalPart}${"0".repeat(fractionDigits)}`.slice(
     0,
     fractionDigits

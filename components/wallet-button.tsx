@@ -10,7 +10,7 @@ import { useIsPartner, useTreasuryBalance } from "@/lib/contracts/hooks"
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
 import { useRpc } from "@/lib/rpc/context"
 import { CHAINS, getChainByNumericId } from "@/lib/rpc/nodes"
-import { formatEther } from "ethers"
+import { formatTokenValue } from "@/lib/token-format"
 
 const ConnectModal = dynamic(
   () => import("./connect-modal").then((mod) => mod.ConnectModal)
@@ -49,7 +49,7 @@ export function WalletButton() {
   }
 
   const formattedTreasuryBalance = treasuryBalance
-    ? Number(formatEther(treasuryBalance)).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+    ? formatTokenValue(treasuryBalance, 18)
     : "0.0000"
 
   /* ---- Disconnected state ---- */

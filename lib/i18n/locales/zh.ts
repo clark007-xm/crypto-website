@@ -222,7 +222,7 @@ export const zh: Dictionary = {
     title: "创建桌子",
     subtitle: "设置抽奖参数，创建新一期夺宝活动",
     ticketPrice: "单张票价",
-    ticketPriceHint: "每份参与需要的 USDT 数量",
+    ticketPriceHint: "每份参与需要的 ETH 数量",
     totalTickets: "总票数",
     totalTicketsHint: "本期发售的总份数，售完自动开奖",
     commitDuration: "购票时长",
@@ -391,7 +391,7 @@ export const zh: Dictionary = {
   },
   footer: {
     desc: "基于区块链智能合约的公平透明夺宝平台。",
-    descSub: "仅需 1 USDT 即可参与赢取加密资产大奖。",
+    descSub: "使用 ETH 参与，奖金与退款记入链上余额。",
     platform: "平台",
     ongoing: "正在进行",
     history: "往期揭晓",

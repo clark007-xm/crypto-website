@@ -8,11 +8,11 @@ import { formatEther, parseEther } from "ethers"
 import { useTransactionFlow } from "@/components/transaction-flow-provider"
 import { TreasuryActivityList } from "@/components/treasury-activity-list"
 import { useOneTapCopy } from "@/components/one-tap/navigation"
+import { formatTokenValue } from "@/lib/token-format"
 import { useT } from "@/lib/i18n/context"
 import {
   useDepositToTreasury,
   useIsPartner,
-  usePartnerDeposit,
   useTreasuryActivity,
   useTreasuryBalance,
   useWithdrawFromTreasury,
@@ -20,10 +20,7 @@ import {
 import { useWallet } from "@/lib/wallet/context"
 
 function formatEth(value: bigint) {
-  return Number(formatEther(value)).toLocaleString(undefined, {
-    minimumFractionDigits: 4,
-    maximumFractionDigits: 6,
-  })
+  return formatTokenValue(value, 18, 6)
 }
 
 export function TreasuryCenter() {
@@ -34,12 +31,6 @@ export function TreasuryCenter() {
   const { balance, loading, checked, refresh, error: balanceError } = useTreasuryBalance()
   const { withdraw, loading: withdrawing, error } = useWithdrawFromTreasury()
   const { isPartner, loading: partnerLoading, checked: partnerChecked, error: partnerError, refresh: refreshPartner } = useIsPartner()
-  const {
-    balance: partnerDepositBalance,
-    requiredDeposit,
-    loading: partnerDepositLoading, checked: partnerDepositChecked,
-    refresh: refreshPartnerDeposit,
-  } = usePartnerDeposit()
   const { deposit, loading: depositing, error: depositError } = useDepositToTreasury()
   const {
     records: activityRecords,
@@ -126,7 +117,7 @@ export function TreasuryCenter() {
     if (ok) {
       setDepositSuccess(true)
       setDepositAmount("")
-      await Promise.all([refresh(), refreshPartnerDeposit(), refreshActivity()])
+      await Promise.all([refresh(), refreshActivity()])
     }
   }
 
@@ -261,8 +252,8 @@ export function TreasuryCenter() {
                       <p className="text-xs text-base-content/45">
                         {t.treasury.availablePartnerDeposit}
                       </p>
-                      <p className="mt-1 font-display text-xl font-bold text-secondary">
-                        {!partnerDepositChecked ? partnerDepositLoading ? "..." : "—" : formatEth(partnerDepositBalance)} ETH
+                      <p className="mt-1 font-display text-xl font-bold text-primary">
+                        {!checked ? loading ? "..." : "—" : formatEth(balance)} ETH
                       </p>
                     </div>
                     <div className="rounded-2xl border border-base-content/5 bg-base-100/70 p-4">
@@ -270,7 +261,7 @@ export function TreasuryCenter() {
                         {t.treasury.requiredPartnerDeposit}
                       </p>
                       <p className="mt-1 font-display text-xl font-bold">
-                        {formatEth(requiredDeposit)} ETH
+                        {copy.depositFormula}
                       </p>
                     </div>
                   </div>

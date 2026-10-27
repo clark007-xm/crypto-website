@@ -11,11 +11,10 @@ import { DurationPicker } from "@/components/duration-picker"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
 import { computeCreatorCommitment, saveLocalCreatorSecret } from "@/lib/creator-session-secret"
-import { useIsPartner, useCreateSession, usePartnerDeposit, useDepositToTreasury, usePaymentTokenMetadata } from "@/lib/contracts/hooks"
-import { getAddresses, hasDeployedContracts } from "@/lib/contracts/addresses"
+import { useIsPartner, useCreateSession, usePartnerDeposit, useDepositToTreasury } from "@/lib/contracts/hooks"
 import { saveLocalSessionProductInfo } from "@/lib/local-session-product-info"
 import { PRODUCT_INFO_OPTIONS, getProductInfoLabel } from "@/lib/product-info"
-import { parseTokenAmount } from "@/lib/token-format"
+import { SESSION_PAYMENT, parseSessionTicketPrice, requiredSessionDeposit } from "@/lib/contracts/payment"
 import { 
   MAX_COMMIT_DURATION_DAYS, 
   MAX_COMMIT_DURATION_SECONDS,
@@ -63,16 +62,7 @@ export default function CreatePage() {
 
   // Compute commitment from secret (for preview)
   const commitment = computeCreatorCommitment(secret)
-  const paymentTokenAddress = useMemo(
-    () => (hasDeployedContracts(chainId ?? null) ? getAddresses(chainId ?? null).usdt : null),
-    [chainId]
-  )
-  const {
-    metadata: paymentTokenMetadata,
-    loading: paymentTokenMetadataLoading,
-  } = usePaymentTokenMetadata(paymentTokenAddress)
-  const paymentTokenDecimals = paymentTokenMetadata.decimals
-  const paymentTokenSymbol = paymentTokenMetadata.symbol
+  const paymentTokenSymbol = SESSION_PAYMENT.symbol
 
   // Copy secret to clipboard
   const copySecret = async () => {
@@ -122,11 +112,11 @@ export default function CreatePage() {
   const ticketsNum = parseInt(totalTickets, 10) || 0
   const requiredDepositWei = useMemo(() => {
     try {
-      return parseTokenAmount(ticketPrice || "0", paymentTokenDecimals) * BigInt(ticketsNum)
+      return requiredSessionDeposit(parseSessionTicketPrice(ticketPrice), BigInt(ticketsNum))
     } catch {
       return 0n
     }
-  }, [paymentTokenDecimals, ticketPrice, ticketsNum])
+  }, [ticketPrice, ticketsNum])
   const { balance: depositBalance, isInsufficient, shortfall, loading: depositLoading, checked: depositChecked, refresh: refreshDeposit } = usePartnerDeposit(requiredDepositWei)
   const partnerShareNum = parseFloat(partnerShare) || 0
   const platformFeeNum = parseFloat(platformFee) || 0
@@ -162,7 +152,7 @@ export default function CreatePage() {
     // commitment is already computed from secret
     let parsedTicketPrice: bigint
     try {
-      parsedTicketPrice = parseTokenAmount(ticketPrice, paymentTokenDecimals)
+      parsedTicketPrice = parseSessionTicketPrice(ticketPrice)
     } catch {
       alert(t.create.failed)
       return
@@ -651,7 +641,7 @@ export default function CreatePage() {
           <button
             type="submit"
             className="btn btn-primary btn-block btn-lg"
-            disabled={creating || !secret || !productInfoId || isInsufficient || paymentTokenMetadataLoading}
+            disabled={creating || !secret || !productInfoId || !partnerChecked || !isPartner || !depositChecked || isInsufficient || requiredDepositWei <= 0n}
           >
             {creating && <span className="loading loading-spinner"></span>}
             {creating ? t.create.creating : t.create.submit}

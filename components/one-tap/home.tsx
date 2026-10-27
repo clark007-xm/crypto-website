@@ -30,8 +30,8 @@ interface Pool {
   session?: SessionConfigFromEvent
 }
 const SAMPLE_POOLS: Pool[] = [
-  { id: "sample-featured", amount: "1,000", symbol: "USDT", price: "1", sold: 680, total: 1000, deadline: 0, state: "active" },
-  { id: "sample-small", amount: "100", symbol: "USDT", price: "1", sold: 32, total: 100, deadline: 0, state: "active" },
+  { id: "sample-featured", amount: "0.1", symbol: "ETH", price: "0.0001", sold: 680, total: 1000, deadline: 0, state: "active" },
+  { id: "sample-small", amount: "0.01", symbol: "ETH", price: "0.0001", sold: 32, total: 100, deadline: 0, state: "active" },
 ]
 function compactAmount(amount: bigint, decimals: number) {
   return formatTokenValue(amount, decimals, Math.min(decimals, 4)).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1")

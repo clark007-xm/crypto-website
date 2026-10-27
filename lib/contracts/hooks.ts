@@ -1,5 +1,9 @@
 "use client";
 
+import { parseTreasuryActivityEvent, type TreasuryActivityRecord } from "./treasury-events";
+export type { TreasuryActivityRecord, TreasuryActivityKind, TreasuryActivityTone } from "./treasury-events";
+import { prepareContractWrite } from "./write-guard";
+import { SESSION_PAYMENT } from "./payment";
 import { verifiedDeploymentBlock } from "./verified-deployments";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -8,8 +12,6 @@ import {
   Interface,
   ZeroAddress,
   isAddress,
-  formatUnits,
-  parseUnits,
 } from "ethers";
 import type { ContractTransactionResponse, Log } from "ethers";
 import { useWallet } from "@/lib/wallet/context";
@@ -27,7 +29,6 @@ import type { TransactionLifecycleCallbacks } from "@/lib/transactions/types";
 import { buildCreatorRevealPayload } from "@/lib/creator-session-secret";
 import { getReadableContractErrorMessage } from "./errors";
 import {
-  ERC20_ABI,
   FACTORY_ABI,
   FACTORY_ABI_LEGACY,
   SESSION_ABI,
@@ -36,7 +37,6 @@ import {
 import { getAddresses, hasDeployedContracts } from "./addresses";
 import { getMaxBlockRange } from "./config";
 
-const REQUIRED_PARTNER_DEPOSIT = 100000000000000000n;
 const SESSION_INTERFACE = new Interface(SESSION_ABI);
 const TREASURY_INTERFACE = new Interface(TREASURY_ABI);
 const FACTORY_CURRENT_CREATE_SELECTOR = "0xfb7b6d1b";
@@ -202,11 +202,11 @@ async function readSessionPurchaseState(
     ticketsSold,
     isSettled,
   ] = await Promise.all([
-    contract.unlockTimestamp().catch(() => 0n),
-    contract.commitDurationSeconds().catch(() => 0n),
-    contract.totalTickets().catch(() => 0n),
-    contract.nextTicketIndex().catch(() => 0n),
-    contract.isSettled().catch(() => false),
+    contract.unlockTimestamp(),
+    contract.commitDurationSeconds(),
+    contract.totalTickets(),
+    contract.nextTicketIndex(),
+    contract.isSettled(),
   ]);
 
   return {
@@ -292,208 +292,6 @@ function decodeSessionBuyError(
 
   return error instanceof Error ? error.message : "Buy tickets failed";
 }
-
-/* ════════════════════════════════════════════════════════════════════════════
- *  ERC-20 / USDT Hooks
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export function useUsdtContract() {
-  const { chainId } = useWallet();
-  const { readProvider } = useRpc();
-
-  return useMemo(() => {
-    if (!readProvider || !chainId) return null;
-    const { usdt } = getAddresses(chainId);
-    return new Contract(usdt, ERC20_ABI, readProvider);
-  }, [readProvider, chainId]);
-}
-
-export function useUsdtBalance() {
-  const { address, chainId, provider } = useWallet();
-  const [balance, setBalance] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const lastFetchKey = useRef<string | null>(null);
-
-  const providerRef = useRef(provider);
-  providerRef.current = provider;
-
-  const refresh = useCallback(async () => {
-    const currentProvider = providerRef.current;
-    if (!address || !currentProvider || !chainId) {
-      setBalance(null);
-      return;
-    }
-    setLoading(true);
-    try {
-      const { usdt } = getAddresses(chainId);
-      const contract = new Contract(usdt, ERC20_ABI, currentProvider);
-      const [raw, decimals] = await Promise.all([
-        contract.balanceOf(address) as Promise<bigint>,
-        contract.decimals() as Promise<bigint>,
-      ]);
-      setBalance(formatUnits(raw, Number(decimals)));
-      lastFetchKey.current = `${address}-${chainId}`;
-    } catch {
-      setBalance(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [address, chainId]);
-
-  useEffect(() => {
-    const key = address && chainId ? `${address}-${chainId}` : null;
-    if (key && lastFetchKey.current !== key) {
-      refresh();
-    }
-  }, [address, chainId, refresh]);
-
-  return { balance, loading, refresh };
-}
-
-export function usePaymentTokenMetadata(tokenAddress: string | null | undefined) {
-  const { chainId: walletChainId } = useWallet();
-  const { readProvider, chain } = useRpc();
-  const activeChainId =
-    walletChainId && hasDeployedContracts(walletChainId)
-      ? walletChainId
-      : CHAINS[chain].numericId;
-  const [metadata, setMetadata] = useState<PaymentTokenMetadata>({
-    decimals: 18,
-    symbol: "ETH",
-  });
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function refresh() {
-      if (!readProvider || !tokenAddress) {
-        setMetadata({ decimals: 18, symbol: "ETH" });
-        return;
-      }
-
-      setLoading(true);
-      try {
-        const nextMetadata = await loadPaymentTokenMetadata(
-          readProvider,
-          tokenAddress,
-          activeChainId,
-        );
-        if (!cancelled) setMetadata(nextMetadata);
-      } catch {
-        if (!cancelled) {
-          setMetadata({
-            decimals: 18,
-            symbol:
-              tokenAddress.toLowerCase() === ZeroAddress.toLowerCase()
-                ? "ETH"
-                : "TOKEN",
-          });
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void refresh();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeChainId, readProvider, tokenAddress]);
-
-  return { metadata, loading };
-}
-
-export function useUsdtAllowance(spender: string | null) {
-  const { address, chainId, provider } = useWallet();
-  const [allowance, setAllowance] = useState<bigint>(0n);
-  const [loading, setLoading] = useState(false);
-  const lastFetchKey = useRef<string | null>(null);
-
-  const providerRef = useRef(provider);
-  providerRef.current = provider;
-
-  const refresh = useCallback(async () => {
-    const currentProvider = providerRef.current;
-    if (!address || !currentProvider || !chainId || !spender) {
-      setAllowance(0n);
-      return;
-    }
-    setLoading(true);
-    try {
-      const { usdt } = getAddresses(chainId);
-      const contract = new Contract(usdt, ERC20_ABI, currentProvider);
-      const raw = (await contract.allowance(address, spender)) as bigint;
-      setAllowance(raw);
-      lastFetchKey.current = `${address}-${chainId}-${spender}`;
-    } catch {
-      setAllowance(0n);
-    } finally {
-      setLoading(false);
-    }
-  }, [address, chainId, spender]);
-
-  useEffect(() => {
-    const key =
-      address && chainId && spender ? `${address}-${chainId}-${spender}` : null;
-    if (key && lastFetchKey.current !== key) {
-      refresh();
-    }
-  }, [address, chainId, spender, refresh]);
-
-  return { allowance, loading, refresh };
-}
-
-export function useApproveUsdt() {
-  const { signer, chainId } = useWallet();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const signerRef = useRef(signer);
-  signerRef.current = signer;
-
-  const approve = useCallback(
-    async (
-      spender: string,
-      amount: string,
-      callbacks?: TransactionLifecycleCallbacks,
-    ) => {
-      const currentSigner = signerRef.current;
-      if (!currentSigner || !chainId) return null;
-      setLoading(true);
-      setError(null);
-      try {
-        const { usdt } = getAddresses(chainId);
-        const contract = new Contract(usdt, ERC20_ABI, currentSigner);
-        const decimals = (await contract.decimals()) as bigint;
-        const parsed = parseUnits(amount, Number(decimals));
-        callbacks?.onAwaitingSignature?.();
-        const tx = (await contract.approve(
-          spender,
-          parsed,
-        )) as ContractTransactionResponse;
-        callbacks?.onSubmitted?.(tx);
-        await tx.wait();
-        callbacks?.onConfirmed?.(tx);
-        return tx;
-      } catch (err) {
-        callbacks?.onError?.(err);
-        setError(getReadableContractErrorMessage(err, "Approve failed"));
-        return null;
-      } finally {
-        setLoading(false);
-      }
-    },
-    [chainId],
-  );
-
-  return { approve, loading, error };
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- *  Factory Contract Hooks
- * ════════════════════════════════════════════════════════════════════════════ */
 
 export function useFactoryContract() {
   const { chainId } = useWallet();
@@ -617,7 +415,7 @@ export function useTreasuryBalance(): TreasuryBalanceState {
     checked: state.value !== null && !state.error, error: state.error, refresh: state.refresh };
 }
 
-export function usePartnerDeposit(requiredDepositWei = REQUIRED_PARTNER_DEPOSIT) {
+export function usePartnerDeposit(requiredDepositWei: bigint) {
   const state = useTreasuryBalance();
   return { ...state, requiredDeposit: requiredDepositWei,
     isInsufficient: state.checked && state.balance < requiredDepositWei,
@@ -627,31 +425,37 @@ export function usePartnerDeposit(requiredDepositWei = REQUIRED_PARTNER_DEPOSIT)
 /**
  * Deposit ETH to Treasury as partner deposit (payable function)
  */
+function useContractWriteGuard() {
+  const wallet = useWallet();
+  const rpc = useRpc();
+  const current = useRef({
+    signer: wallet.signer, address: wallet.address, walletChainId: wallet.chainId,
+    selectedChainId: CHAINS[rpc.chain].numericId, connected: wallet.status === "connected",
+    allowed: rpc.availableChains.includes(rpc.chain) && hasDeployedContracts(CHAINS[rpc.chain].numericId),
+  });
+  current.current = { signer: wallet.signer, address: wallet.address, walletChainId: wallet.chainId,
+    selectedChainId: CHAINS[rpc.chain].numericId, connected: wallet.status === "connected",
+    allowed: rpc.availableChains.includes(rpc.chain) && hasDeployedContracts(CHAINS[rpc.chain].numericId) };
+  return useCallback((targetChainId: number) => prepareContractWrite(targetChainId, () => current.current), []);
+}
+
 export function useDepositToTreasury() {
-  const { signer, chainId } = useWallet();
+  const { chainId } = useWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const signerRef = useRef(signer);
-  signerRef.current = signer;
+  const prepareWrite = useContractWriteGuard();
 
   const deposit = useCallback(
     async (
       amountWei: bigint,
       callbacks?: TransactionLifecycleCallbacks,
     ): Promise<boolean> => {
-      const currentSigner = signerRef.current;
-      if (!currentSigner || !chainId) {
-        setError("Wallet not connected");
-        return false;
-      }
-      if (!hasDeployedContracts(chainId)) {
-        setError("Contracts not deployed on this chain");
-        return false;
-      }
       setLoading(true);
       setError(null);
       try {
+        const write = await prepareWrite(chainId ?? 0);
+        const currentSigner = write.signer;
         const { treasury } = getAddresses(chainId);
 
         // partnerDeposit() is a payable function - send ETH directly
@@ -660,6 +464,7 @@ export function useDepositToTreasury() {
           TREASURY_ABI,
           currentSigner,
         );
+        await write.assertCurrent();
         callbacks?.onAwaitingSignature?.();
         const depositTx = await treasuryContract.partnerDeposit({
           value: amountWei,
@@ -676,41 +481,33 @@ export function useDepositToTreasury() {
         setLoading(false);
       }
     },
-    [chainId],
+    [chainId, prepareWrite],
   );
 
   return { deposit, loading, error };
 }
 
 export function useWithdrawFromTreasury() {
-  const { signer, chainId } = useWallet();
+  const { chainId } = useWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const signerRef = useRef(signer);
-  signerRef.current = signer;
+  const prepareWrite = useContractWriteGuard();
 
   const withdraw = useCallback(
     async (
       amountWei: bigint,
       callbacks?: TransactionLifecycleCallbacks,
     ) => {
-      const currentSigner = signerRef.current;
-      if (!currentSigner || !chainId) {
-        setError("Wallet not connected");
-        return null;
-      }
-      if (!hasDeployedContracts(chainId)) {
-        setError("Contracts not deployed on this chain");
-        return null;
-      }
-
       setLoading(true);
       setError(null);
       try {
+        const write = await prepareWrite(chainId ?? 0);
+        const currentSigner = write.signer;
         const { treasury } = getAddresses(chainId);
         const contract = new Contract(treasury, TREASURY_ABI, currentSigner);
         await contract.withdraw.staticCall(amountWei);
+        await write.assertCurrent();
         callbacks?.onAwaitingSignature?.();
         const tx = (await contract.withdraw(
           amountWei,
@@ -727,7 +524,7 @@ export function useWithdrawFromTreasury() {
         setLoading(false);
       }
     },
-    [chainId],
+    [chainId, prepareWrite],
   );
 
   return { withdraw, loading, error };
@@ -770,31 +567,23 @@ export interface CreateSessionConfig {
 }
 
 export function useCreateSession() {
-  const { signer, address, chainId } = useWallet();
+  const { address, chainId } = useWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const signerRef = useRef(signer);
-  signerRef.current = signer;
+  const prepareWrite = useContractWriteGuard();
 
   const createSession = useCallback(
     async (
       config: CreateSessionConfig,
       callbacks?: TransactionLifecycleCallbacks,
     ): Promise<string | null> => {
-      const currentSigner = signerRef.current;
-      if (!currentSigner || !address || !chainId) {
-        setError("Wallet not connected");
-        return null;
-      }
-      if (!hasDeployedContracts(chainId)) {
-        setError("Contracts not deployed on this chain");
-        return null;
-      }
       setLoading(true);
       setError(null);
       try {
-        const { factory, usdt, treasury } = getAddresses(chainId);
+        const write = await prepareWrite(chainId ?? 0);
+        const currentSigner = write.signer;
+        const { factory, treasury } = getAddresses(chainId);
         const factoryVersion = await detectFactoryAbiVersion(
           currentSigner.provider,
           factory,
@@ -832,7 +621,7 @@ export function useCreateSession() {
           productInfoId: BigInt(config.productInfoId),
           sessionCommitment: config.sessionCommitment,
           treasury: treasury,
-          paymentToken: usdt,
+          paymentToken: SESSION_PAYMENT.address,
           ticketPrice: config.ticketPrice,
           totalTickets: BigInt(config.totalTickets),
           partnerShareBps: config.partnerShareBps,
@@ -844,6 +633,7 @@ export function useCreateSession() {
           unlockTimestamp,
         };
 
+        await write.assertCurrent();
         callbacks?.onAwaitingSignature?.();
         const tx = await factoryContract.createSession(sessionConfig);
         callbacks?.onSubmitted?.(tx);
@@ -876,7 +666,7 @@ export function useCreateSession() {
         setLoading(false);
       }
     },
-    [address, chainId],
+    [address, chainId, prepareWrite],
   );
 
   return { createSession, loading, error };
@@ -928,16 +718,10 @@ export interface PaymentTokenMetadata {
 
 const SESSION_CATALOG_CACHE_TTL_MS = 30_000;
 const EMPTY_SESSION_CATALOG: SessionCatalogFromEvent[] = [];
-const PAYMENT_TOKEN_METADATA_CACHE_TTL_MS = 5 * 60_000;
 const SESSION_CATALOG_CACHE = new Map<
   number,
   TimedCacheEntry<SessionCatalogFromEvent[]>
 >();
-const PAYMENT_TOKEN_METADATA_CACHE = new Map<
-  string,
-  TimedCacheEntry<PaymentTokenMetadata>
->();
-
 function getFreshCacheValue<T>(
   cache: Map<string | number, TimedCacheEntry<T>>,
   key: string | number,
@@ -983,11 +767,7 @@ function buildSessionCatalogEntry(
     treasury: config[3 + productInfoOffset] as string,
     paymentToken: config[4 + productInfoOffset] as string,
     paymentTokenDecimals: 18,
-    paymentTokenSymbol:
-      String(config[4 + productInfoOffset]).toLowerCase() ===
-      ZeroAddress.toLowerCase()
-        ? "ETH"
-        : "TOKEN",
+    paymentTokenSymbol: SESSION_PAYMENT.symbol,
     ticketPrice: BigInt(
       (config[5 + productInfoOffset] as bigint | number | string | undefined) ??
         0,
@@ -1012,58 +792,8 @@ function buildSessionCatalogEntry(
   };
 }
 
-async function loadPaymentTokenMetadata(
-  provider: Contract["runner"],
-  tokenAddress: string,
-  chainId: number,
-): Promise<PaymentTokenMetadata> {
-  if (!tokenAddress || tokenAddress.toLowerCase() === ZeroAddress.toLowerCase()) {
-    return { decimals: 18, symbol: "ETH" };
-  }
-
-  const cacheKey = `${chainId}-${tokenAddress.toLowerCase()}`;
-  const cached = getFreshCacheValue(
-    PAYMENT_TOKEN_METADATA_CACHE,
-    cacheKey,
-    PAYMENT_TOKEN_METADATA_CACHE_TTL_MS,
-  );
-  if (cached) return cached;
-
-  try {
-    const contract = new Contract(tokenAddress, ERC20_ABI, provider);
-    const [rawDecimals, rawSymbol] = await Promise.all([
-      contract.decimals().catch(() => 18),
-      contract.symbol().catch(() => "TOKEN"),
-    ]);
-    const decimals = Number(rawDecimals);
-    const metadata = {
-      decimals: Number.isFinite(decimals) ? decimals : 18,
-      symbol: String(rawSymbol || "TOKEN"),
-    };
-    PAYMENT_TOKEN_METADATA_CACHE.set(cacheKey, {
-      value: metadata,
-      updatedAt: Date.now(),
-    });
-    return metadata;
-  } catch {
-    return { decimals: 18, symbol: "TOKEN" };
-  }
-}
-
-async function withPaymentTokenMetadata<T extends SessionCatalogFromEvent>(
-  session: T,
-  provider: Contract["runner"],
-): Promise<T> {
-  const metadata = await loadPaymentTokenMetadata(
-    provider,
-    session.paymentToken,
-    session.chainId,
-  );
-  return {
-    ...session,
-    paymentTokenDecimals: metadata.decimals,
-    paymentTokenSymbol: metadata.symbol,
-  };
+async function withPaymentTokenMetadata<T extends SessionCatalogFromEvent>(session: T, _provider: Contract["runner"]): Promise<T> {
+  return { ...session, paymentTokenDecimals: SESSION_PAYMENT.decimals, paymentTokenSymbol: SESSION_PAYMENT.symbol };
 }
 
 const SESSION_INDEXES = new Map<string, SessionLogIndex>();
@@ -1076,35 +806,12 @@ const SESSION_TOPICS = [...new Set([
 ])];
 const SESSION_STATUS_CACHE = new Map<string, TimedCacheEntry<SessionConfigFromEvent>>();
 const SESSION_STATUS_FLIGHTS = new Map<string, Promise<SessionConfigFromEvent>>();
-const INDEX_TOKEN_CACHE = new Map<string, Promise<PaymentTokenMetadata>>();
 
 function readRunner(client: ChainReadClient) {
   return { provider: null, call: (tx: { to?: unknown; data?: unknown }) => client.send<string>("eth_call", [{ to: tx.to, data: tx.data }, "latest"]) };
 }
-function loadIndexToken(client: ChainReadClient, token: string): Promise<PaymentTokenMetadata> {
-  if (token.toLowerCase() === ZeroAddress.toLowerCase()) return Promise.resolve({ decimals: 18, symbol: "ETH" });
-  const key = `${client.chainId}:${token.toLowerCase()}`;
-  const previous = INDEX_TOKEN_CACHE.get(key);
-  if (previous) return previous;
-  const contract = new Contract(token, ERC20_ABI, readRunner(client));
-  const promise = (async () => {
-    const storage = getBrowserIndexStorage();
-    const cacheKey = `onetap:token:v1:${key}`;
-    try {
-      const cached = JSON.parse(await storage?.getItem(cacheKey) ?? "null");
-      if (cached && Number.isSafeInteger(cached.updatedAt) && cached.updatedAt <= Date.now() && Date.now() - cached.updatedAt < 86400000 && Number.isInteger(cached.decimals) && cached.decimals >= 0 && cached.decimals <= 255 && typeof cached.symbol === "string") {
-        return { decimals: cached.decimals as number, symbol: cached.symbol as string };
-      }
-    } catch { /* optional cache */ }
-    const [raw, symbol] = await Promise.all([contract.decimals(), contract.symbol()]);
-    const decimals = Number(raw);
-    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) throw new ChainReadError("invalid-response");
-    const value = { decimals, symbol: String(symbol) };
-    void Promise.resolve(storage?.setItem(cacheKey, JSON.stringify({ ...value, updatedAt: Date.now() }))).catch(() => {});
-    return value;
-  })().catch(error => { INDEX_TOKEN_CACHE.delete(key); throw error; });
-  INDEX_TOKEN_CACHE.set(key, promise);
-  return promise;
+function loadIndexToken(_client: ChainReadClient, _token: string): Promise<PaymentTokenMetadata> {
+  return Promise.resolve({ decimals: SESSION_PAYMENT.decimals, symbol: SESSION_PAYMENT.symbol });
 }
 
 function useSharedSessionIndex(mode: "page" | "all" = "page", enabled = true) {
@@ -1647,37 +1354,6 @@ function parseWinnerSelectionLogs(
   return winnerSelections;
 }
 
-export type TreasuryActivityKind =
-  | "balance-updated"
-  | "partner-deposit-updated"
-  | "withdraw"
-  | "session-registered"
-  | "player-pay-ticket"
-  | "session-ticket-balance-updated"
-  | "session-deposit-balance-updated"
-  | "distribute-funds"
-  | "partner-deposit-locked"
-  | "partner-deposit-unlocked"
-  | "partner-deposit-slashed"
-  | "emergency-partner-deposit-unlocked";
-
-export type TreasuryActivityTone = "in" | "out" | "neutral" | "warning";
-
-export interface TreasuryActivityRecord {
-  chainId: number;
-  kind: TreasuryActivityKind;
-  tone: TreasuryActivityTone;
-  transactionHash: string;
-  blockNumber: number;
-  blockTimestamp: number;
-  logIndex: number;
-  amount: bigint | null;
-  user: string | null;
-  partner: string | null;
-  session: string | null;
-  recipient: string | null;
-}
-
 interface UseTreasuryActivityOptions {
   enabled?: boolean;
   sessionAddress?: string | null;
@@ -1686,110 +1362,6 @@ interface UseTreasuryActivityOptions {
   treasuryAddress?: string | null;
   sessionChainId?: number | null;
   creationBlock?: number;
-}
-
-function getTreasuryEventKind(eventName: string): TreasuryActivityKind | null {
-  switch (eventName) {
-    case "BalanceUpdated":
-      return "balance-updated";
-    case "PartnerDepositUpdated":
-      return "partner-deposit-updated";
-    case "Withdraw":
-      return "withdraw";
-    case "SessionRegistered":
-      return "session-registered";
-    case "PlayerPayTicketIn":
-      return "player-pay-ticket";
-    case "SessionTicketBalanceUpdated":
-      return "session-ticket-balance-updated";
-    case "SessionDepositBalanceUpdated":
-      return "session-deposit-balance-updated";
-    case "DistributeFunds":
-      return "distribute-funds";
-    case "PartnerDepositLocked":
-      return "partner-deposit-locked";
-    case "PartnerDepositUnlocked":
-      return "partner-deposit-unlocked";
-    case "PartnerDepositSlashed":
-      return "partner-deposit-slashed";
-    case "EmergencyPartnerDepositUnlocked":
-      return "emergency-partner-deposit-unlocked";
-    default:
-      return null;
-  }
-}
-
-function getTreasuryActivityTone(kind: TreasuryActivityKind): TreasuryActivityTone {
-  switch (kind) {
-    case "withdraw":
-    case "player-pay-ticket":
-    case "partner-deposit-locked":
-      return "out";
-    case "partner-deposit-slashed":
-    case "emergency-partner-deposit-unlocked":
-      return "warning";
-    case "partner-deposit-updated":
-    case "distribute-funds":
-    case "partner-deposit-unlocked":
-      return "in";
-    default:
-      return "neutral";
-  }
-}
-
-function parseTreasuryActivityEvent(
-  contract: Contract,
-  event: Log | IndexedLog,
-  chainId: number,
-  blockTimestampMap: Map<number, number>,
-): TreasuryActivityRecord | null {
-  try {
-    const parsed = contract.interface.parseLog(event);
-    if (!parsed) return null;
-
-    const kind = getTreasuryEventKind(parsed.name);
-    if (!kind) return null;
-
-    const getAddressArg = (name: string, index: number) => {
-      const value = parsed.args?.[name] ?? parsed.args?.[index];
-      return typeof value === "string" ? value : null;
-    };
-    const getBigIntArg = (name: string, index: number) => {
-      const value = parsed.args?.[name] ?? parsed.args?.[index];
-      if (value == null) return null;
-      return BigInt(value as bigint | number | string);
-    };
-
-    const amount =
-      getBigIntArg("amount", 2) ??
-      getBigIntArg("newBalance", 1) ??
-      getBigIntArg("playerTicketAmount", 1) ??
-      getBigIntArg("partnerDepositAmount", 1);
-
-    return {
-      chainId,
-      kind,
-      tone: getTreasuryActivityTone(kind),
-      transactionHash: event.transactionHash,
-      blockNumber: event.blockNumber,
-      blockTimestamp: blockTimestampMap.get(event.blockNumber) ?? 0,
-      logIndex: Number(
-        (event as { logIndex?: number; index?: number }).logIndex ??
-          (event as { index?: number }).index ??
-          0,
-      ),
-      amount,
-      user:
-        getAddressArg("user", 1) ??
-        getAddressArg("player", 1) ??
-        getAddressArg("partner", 1),
-      partner: getAddressArg("partner", 1),
-      session: getAddressArg("session", 0),
-      recipient: getAddressArg("recipient", 3),
-    };
-  } catch {
-    return null;
-  }
 }
 
 function isSameAddress(left: string | null | undefined, right: string | null | undefined) {
@@ -1833,7 +1405,7 @@ export function useTreasuryActivity({
   const start = sessionAddress ? creationBlock : 0;
   const key = `${chainId}:${treasury.toLowerCase()}:${start}:${sessionAddress?.toLowerCase() ?? ""}:${player?.toLowerCase() ?? ""}`;
   const index = useMemo(() => new SessionLogIndex(chainId, treasury, start, getBrowserIndexStorage(), {
-    cacheKey: `onetap:treasury:v1:${key}`,
+    cacheKey: `onetap:treasury:v2:${key}`,
     acceptLog: log => acceptsTreasuryLog(log, { sessionAddress, userAddress: player }),
   }), [key, chainId, treasury, start, sessionAddress, player]);
   const snapshot = useSyncExternalStore(index.subscribe, index.snapshot, () => EMPTY_INDEX);
@@ -2151,12 +1723,10 @@ export function useRecentWinners(limit = 5) {
  * ═════════════════════════════════════════════════════════════════════════��══ */
 
 export function useBuyTickets() {
-  const { signer } = useWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const signerRef = useRef(signer);
-  signerRef.current = signer;
+  const prepareWrite = useContractWriteGuard();
 
   /**
    * Buy tickets using playerBuyAndCommitTicket
@@ -2164,23 +1734,23 @@ export function useBuyTickets() {
    * @param quantity - Number of tickets to buy
    * @param secret - Random bytes32 secret for commit
    * @param useBalance - Whether to use Treasury balance for payment
-   * @param value - ETH value to send (if not using balance)
+   * Payment value is calculated from the onchain ETH ticket price.
    */
   const buyTickets = useCallback(
     async (
       sessionAddress: string,
+      targetChainId: number,
       quantity: number,
       secret: string,
       useBalance: boolean,
-      value?: bigint,
       callbacks?: TransactionLifecycleCallbacks,
     ) => {
-      const currentSigner = signerRef.current;
-      if (!currentSigner) return null;
       setLoading(true);
       setError(null);
       let purchaseState: SessionPurchaseState | undefined;
       try {
+        const write = await prepareWrite(targetChainId);
+        const currentSigner = write.signer;
         const contract = new Contract(
           sessionAddress,
           SESSION_ABI,
@@ -2190,20 +1760,19 @@ export function useBuyTickets() {
         const windowError = getBuyWindowErrorMessage(purchaseState);
 
         if (windowError) {
-          setError(windowError);
-          return null;
+          throw new Error(windowError);
         }
 
         if (
           purchaseState.ticketsSold + BigInt(quantity) >
           purchaseState.totalTickets
         ) {
-          setError(
-            `Not enough tickets left. Available: ${(purchaseState.totalTickets - purchaseState.ticketsSold).toString()}, requested: ${quantity}.`,
-          );
-          return null;
+          throw new Error(`Not enough tickets left. Available: ${(purchaseState.totalTickets - purchaseState.ticketsSold).toString()}, requested: ${quantity}.`);
         }
 
+        const ticketPrice = BigInt(await contract.ticketPrice());
+        if (!Number.isSafeInteger(quantity) || quantity <= 0 || ticketPrice <= 0n) throw new Error("Invalid ticket purchase");
+        const value = useBalance ? 0n : ticketPrice * BigInt(quantity);
         await contract.playerBuyAndCommitTicket.staticCall(
           quantity,
           secret,
@@ -2211,6 +1780,7 @@ export function useBuyTickets() {
           { value: value || 0n },
         );
 
+        await write.assertCurrent();
         callbacks?.onAwaitingSignature?.();
         const tx = (await contract.playerBuyAndCommitTicket(
           quantity,
@@ -2230,97 +1800,10 @@ export function useBuyTickets() {
         setLoading(false);
       }
     },
-    [],
+    [prepareWrite],
   );
 
   return { buyTickets, loading, error };
-}
-
-export function useClaimPrize() {
-  const { signer } = useWallet();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const signerRef = useRef(signer);
-  signerRef.current = signer;
-
-  const claimPrize = useCallback(
-    async (
-      sessionAddress: string,
-      callbacks?: TransactionLifecycleCallbacks,
-    ) => {
-      const currentSigner = signerRef.current;
-      if (!currentSigner) return null;
-      setLoading(true);
-      setError(null);
-      try {
-        const contract = new Contract(
-          sessionAddress,
-          SESSION_ABI,
-          currentSigner,
-        );
-        callbacks?.onAwaitingSignature?.();
-        const tx = (await contract.claimPrize()) as ContractTransactionResponse;
-        callbacks?.onSubmitted?.(tx);
-        await tx.wait();
-        callbacks?.onConfirmed?.(tx);
-        return tx;
-      } catch (err) {
-        callbacks?.onError?.(err);
-        setError(getReadableContractErrorMessage(err, "Claim prize failed"));
-        return null;
-      } finally {
-        setLoading(false);
-      }
-    },
-    [],
-  );
-
-  return { claimPrize, loading, error };
-}
-
-export function useRefund() {
-  const { signer } = useWallet();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const signerRef = useRef(signer);
-  signerRef.current = signer;
-
-  const refund = useCallback(
-    async (
-      sessionAddress: string,
-      callbacks?: TransactionLifecycleCallbacks,
-    ) => {
-      const currentSigner = signerRef.current;
-      if (!currentSigner) return null;
-      setLoading(true);
-      setError(null);
-      try {
-        const contract = new Contract(
-          sessionAddress,
-          SESSION_ABI,
-          currentSigner,
-        );
-        callbacks?.onAwaitingSignature?.();
-        const tx =
-          (await contract.claimRefund()) as ContractTransactionResponse;
-        callbacks?.onSubmitted?.(tx);
-        await tx.wait();
-        callbacks?.onConfirmed?.(tx);
-        return tx;
-      } catch (err) {
-        callbacks?.onError?.(err);
-        setError(getReadableContractErrorMessage(err, "Refund failed"));
-        return null;
-      } finally {
-        setLoading(false);
-      }
-    },
-    [],
-  );
-
-  return { refund, loading, error };
 }
 
 /**
@@ -2334,29 +1817,29 @@ export function useRefund() {
  * - Unlocks remaining deposit
  */
 export function useUnsoldSettlement() {
-  const { signer } = useWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const signerRef = useRef(signer);
-  signerRef.current = signer;
+  const prepareWrite = useContractWriteGuard();
 
   const finalizeUnsoldSettlement = useCallback(
     async (
       sessionAddress: string,
+      targetChainId: number,
       callbacks?: TransactionLifecycleCallbacks,
     ) => {
-      const currentSigner = signerRef.current;
-      if (!currentSigner) return null;
       setLoading(true);
       setError(null);
       try {
+        const write = await prepareWrite(targetChainId);
+        const currentSigner = write.signer;
         const contract = new Contract(
           sessionAddress,
           SESSION_ABI,
           currentSigner,
         );
         await contract.finalizeTicketsUnsoldSettlement.staticCall();
+        await write.assertCurrent();
         callbacks?.onAwaitingSignature?.();
         const tx =
           (await contract.finalizeTicketsUnsoldSettlement()) as ContractTransactionResponse;
@@ -2374,36 +1857,36 @@ export function useUnsoldSettlement() {
         setLoading(false);
       }
     },
-    [],
+    [prepareWrite],
   );
 
   return { finalizeUnsoldSettlement, loading, error };
 }
 
 export function useCreatorAbsentSettlement() {
-  const { signer } = useWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const signerRef = useRef(signer);
-  signerRef.current = signer;
+  const prepareWrite = useContractWriteGuard();
 
   const finalizeCreatorAbsentSettlement = useCallback(
     async (
       sessionAddress: string,
+      targetChainId: number,
       callbacks?: TransactionLifecycleCallbacks,
     ) => {
-      const currentSigner = signerRef.current;
-      if (!currentSigner) return null;
       setLoading(true);
       setError(null);
       try {
+        const write = await prepareWrite(targetChainId);
+        const currentSigner = write.signer;
         const contract = new Contract(
           sessionAddress,
           SESSION_ABI,
           currentSigner,
         );
         await contract.finalizeCreatorAbsentSettlement.staticCall();
+        await write.assertCurrent();
         callbacks?.onAwaitingSignature?.();
         const tx =
           (await contract.finalizeCreatorAbsentSettlement()) as ContractTransactionResponse;
@@ -2424,29 +1907,25 @@ export function useCreatorAbsentSettlement() {
         setLoading(false);
       }
     },
-    [],
+    [prepareWrite],
   );
 
   return { finalizeCreatorAbsentSettlement, loading, error };
 }
 
 export function useRevealSession() {
-  const { signer } = useWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const signerRef = useRef(signer);
-  signerRef.current = signer;
+  const prepareWrite = useContractWriteGuard();
 
   const revealSession = useCallback(
     async (
       sessionAddress: string,
+      targetChainId: number,
       secret: string,
       callbacks?: TransactionLifecycleCallbacks,
     ) => {
-      const currentSigner = signerRef.current;
-      if (!currentSigner) return null;
-
       const payload = buildCreatorRevealPayload(secret);
       if (!payload) {
         setError(
@@ -2458,12 +1937,15 @@ export function useRevealSession() {
       setLoading(true);
       setError(null);
       try {
+        const write = await prepareWrite(targetChainId);
+        const currentSigner = write.signer;
         const contract = new Contract(
           sessionAddress,
           SESSION_ABI,
           currentSigner,
         );
         await contract.reveal.staticCall(payload.revealData, payload.salt);
+        await write.assertCurrent();
         callbacks?.onAwaitingSignature?.();
         const tx = (await contract.reveal(
           payload.revealData,
@@ -2481,7 +1963,7 @@ export function useRevealSession() {
         setLoading(false);
       }
     },
-    [],
+    [prepareWrite],
   );
 
   return { revealSession, loading, error };
@@ -2497,28 +1979,28 @@ export function useRevealSession() {
  * - Duplicate claims will be rejected
  */
 export function useClaimPrincipalAndPenalty() {
-  const { signer } = useWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const signerRef = useRef(signer);
-  signerRef.current = signer;
+  const prepareWrite = useContractWriteGuard();
 
   const claimPrincipalAndPenalty = useCallback(
     async (
       sessionAddress: string,
+      targetChainId: number,
       callbacks?: TransactionLifecycleCallbacks,
     ) => {
-      const currentSigner = signerRef.current;
-      if (!currentSigner) return null;
       setLoading(true);
       setError(null);
       try {
+        const write = await prepareWrite(targetChainId);
+        const currentSigner = write.signer;
         const contract = new Contract(
           sessionAddress,
           SESSION_ABI,
           currentSigner,
         );
+        await write.assertCurrent();
         callbacks?.onAwaitingSignature?.();
         const tx =
           (await contract.creditPrincipalAndPenaltyIfTicketsUnsold()) as ContractTransactionResponse;
@@ -2534,35 +2016,35 @@ export function useClaimPrincipalAndPenalty() {
         setLoading(false);
       }
     },
-    [],
+    [prepareWrite],
   );
 
   return { claimPrincipalAndPenalty, loading, error };
 }
 
 export function useClaimPrincipalAndCompensationIfCreatorAbsent() {
-  const { signer } = useWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const signerRef = useRef(signer);
-  signerRef.current = signer;
+  const prepareWrite = useContractWriteGuard();
 
   const claimPrincipalAndCompensation = useCallback(
     async (
       sessionAddress: string,
+      targetChainId: number,
       callbacks?: TransactionLifecycleCallbacks,
     ) => {
-      const currentSigner = signerRef.current;
-      if (!currentSigner) return null;
       setLoading(true);
       setError(null);
       try {
+        const write = await prepareWrite(targetChainId);
+        const currentSigner = write.signer;
         const contract = new Contract(
           sessionAddress,
           SESSION_ABI,
           currentSigner,
         );
+        await write.assertCurrent();
         callbacks?.onAwaitingSignature?.();
         const tx =
           (await contract.creditPrincipalAndCompensationIfCreatorAbsent()) as ContractTransactionResponse;
@@ -2578,7 +2060,7 @@ export function useClaimPrincipalAndCompensationIfCreatorAbsent() {
         setLoading(false);
       }
     },
-    [],
+    [prepareWrite],
   );
 
   return { claimPrincipalAndCompensation, loading, error };

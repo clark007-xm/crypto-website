@@ -1,7 +1,7 @@
 "use client"
 
 import { RefreshCw, ShieldAlert, WalletCards } from "lucide-react"
-import { formatEther, ZeroAddress } from "ethers"
+import { ZeroAddress } from "ethers"
 import { ChainQueryStatus } from "@/components/chain-query-status"
 import { TreasuryActivityList } from "@/components/treasury-activity-list"
 import {
@@ -9,6 +9,7 @@ import {
   useTreasuryActivity,
   type SessionConfigFromEvent,
 } from "@/lib/contracts/hooks"
+import { formatTokenValue } from "@/lib/token-format"
 import { useT } from "@/lib/i18n/context"
 
 interface SessionTreasuryCardProps {
@@ -16,10 +17,7 @@ interface SessionTreasuryCardProps {
 }
 
 function formatEth(value: bigint) {
-  return Number(formatEther(value)).toLocaleString(undefined, {
-    minimumFractionDigits: 4,
-    maximumFractionDigits: 6,
-  })
+  return formatTokenValue(value, 18, 6)
 }
 
 function shortAddress(address: string) {

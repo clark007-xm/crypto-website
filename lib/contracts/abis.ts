@@ -169,7 +169,7 @@ export const TREASURY_ABI = [
   "event SessionDepositBalanceUpdated(address indexed session, uint256 partnerDepositAmount)",
   "event PartnerDepositLocked(address indexed session, address indexed partner, uint256 amount)",
   "event PartnerDepositUnlocked(address indexed session, address indexed partner, uint256 amount)",
-  "event PartnerDepositSlashed(address indexed session, address indexed partner, uint256 amount, address recipient)",
+  "event PartnerDepositSlashed(address indexed session, address indexed partner, uint256 amount)",
   "event EmergencyPartnerDepositUnlocked(address indexed session, address indexed partner, uint256 amount)",
   "event DistributeFunds(address indexed session, address indexed user, uint256 amount)",
 ] as const

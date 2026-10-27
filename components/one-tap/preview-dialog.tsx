@@ -1,5 +1,6 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
+import { formatEther } from "ethers"
 import { CheckCircle2, Minus, Plus, X } from "lucide-react"
 import { useOneTapCopy } from "./navigation"
 
@@ -19,7 +20,7 @@ export function PreviewDialog({ open, maxEntries, onClose }: { open: boolean; ma
       {complete ? <div className="ot-preview-success"><CheckCircle2 size={44} /><h3>{copy.previewSuccess}</h3><p>{copy.previewSuccessText}</p><button className="ot-primary" onClick={onClose}>{copy.done}</button></div> : <>
         <p className="ot-preview-notice">{copy.previewNote}</p>
         <div className="ot-setting-row"><label htmlFor="preview-quantity">{copy.quantity}</label><div className="ot-stepper"><button aria-label={copy.quantity + " -1"} onClick={() => setQuantity(v => Math.max(1, v - 1))} disabled={quantity <= 1}><Minus size={18} /></button><input id="preview-quantity" type="number" min={1} max={maxEntries} value={quantity} onChange={e => setQuantity(Math.max(1, Math.min(maxEntries, Number.parseInt(e.target.value, 10) || 1)))} /><button aria-label={copy.quantity + " +1"} onClick={() => setQuantity(v => Math.min(maxEntries, v + 1))} disabled={quantity >= maxEntries}><Plus size={18} /></button></div></div>
-        <div className="ot-preview-total"><span>{copy.total}</span><strong>{quantity} <small>USDT</small></strong></div>
+        <div className="ot-preview-total"><span>{copy.total}</span><strong>{formatEther(BigInt(quantity) * 100000000000000n)} <small>ETH</small></strong></div>
         <button className="ot-primary" onClick={() => setComplete(true)}>{copy.previewConfirm}</button>
       </>}
     </div>

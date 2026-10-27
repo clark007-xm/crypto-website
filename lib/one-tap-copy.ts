@@ -1,6 +1,7 @@
 import type { Locale } from "@/lib/i18n/types"
 
 const zh = {
+  depositFormula: "单份 ETH 价格 × 总份数", adminChecking: "正在验证测试网管理员身份", adminReadFailed: "管理员身份读取失败，测试网暂不可用", adminRetry: "重新验证", walletContextChanged: "钱包账户或网络已变化，请确认后重试。",
   accepting: "参与中", upcoming: "即将开始", sessionOverview: "场次概览", sessionPage: "场次详情", funds: "资金信息",
   sessionMetric: "场次", orderMetric: "笔记录", ticketMetric: "张票", support: "帮助与平台信息",
   retryRead: "重新读取",
@@ -34,6 +35,7 @@ const zh = {
 }
 type Copy = typeof zh
 const en: Copy = {
+  depositFormula: "ETH price per ticket × total tickets", adminChecking: "Checking testnet administrator", adminReadFailed: "Unable to verify administrator. Testnet is unavailable.", adminRetry: "Verify again", walletContextChanged: "Wallet account or network changed. Check your wallet and try again.",
   accepting: "Open", upcoming: "Upcoming", sessionOverview: "Overview", sessionPage: "Session details", funds: "Funds",
   sessionMetric: "Sessions", orderMetric: "Orders", ticketMetric: "Tickets", support: "Help & platform",
   retryRead: "Retry reading",
@@ -66,6 +68,7 @@ const en: Copy = {
 
 }
 const vi: Copy = {
+  depositFormula: "Giá ETH mỗi vé × tổng số vé", adminChecking: "Đang xác minh quản trị viên mạng thử nghiệm", adminReadFailed: "Không thể xác minh quản trị viên. Mạng thử nghiệm chưa khả dụng.", adminRetry: "Xác minh lại", walletContextChanged: "Tài khoản hoặc mạng ví đã thay đổi. Kiểm tra ví rồi thử lại.",
   accepting: "Đang mở", upcoming: "Sắp bắt đầu", sessionOverview: "Tổng quan", sessionPage: "Chi tiết phiên", funds: "Thông tin quỹ",
   sessionMetric: "Phiên", orderMetric: "Giao dịch", ticketMetric: "Vé", support: "Trợ giúp & nền tảng",
   retryRead: "Đọc lại",

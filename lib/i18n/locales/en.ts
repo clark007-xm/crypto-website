@@ -222,7 +222,7 @@ export const en: Dictionary = {
     title: "Create Table",
     subtitle: "Set lottery parameters and create a new session",
     ticketPrice: "Ticket Price",
-    ticketPriceHint: "USDT amount required per ticket",
+    ticketPriceHint: "ETH required per ticket",
     totalTickets: "Total Tickets",
     totalTicketsHint: "Total tickets for sale, auto-draw when sold out",
     commitDuration: "Buy Duration",
@@ -391,7 +391,7 @@ export const en: Dictionary = {
   },
   footer: {
     desc: "Fair & transparent blockchain-based prize lottery platform.",
-    descSub: "Only 1 USDT to win big crypto prizes.",
+    descSub: "Enter with ETH. Prizes and refunds are credited onchain.",
     platform: "Platform",
     ongoing: "Ongoing",
     history: "History",

@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Gift, CheckCircle, AlertCircle } from "lucide-react"
+import { SessionNetworkNotice, useSessionWriteAccess } from "@/components/session-network-notice"
 import { useTransactionFlow } from "@/components/transaction-flow-provider"
 import { useT } from "@/lib/i18n/context"
 import { useWallet } from "@/lib/wallet/context"
@@ -11,20 +12,17 @@ import {
   useClaimPrincipalAndPenalty,
   type SessionConfigFromEvent,
 } from "@/lib/contracts/hooks"
-import { ZeroAddress } from "ethers"
-import { formatTokenAmount, getPaymentTokenSymbol, toTokenNumber } from "@/lib/token-format"
+import { formatTokenAmount, getPaymentTokenSymbol } from "@/lib/token-format"
 
 interface PlayerClaimPanelProps {
   session: SessionConfigFromEvent
   playerTicketCount: number
 }
 
-// ETH to USDT rate for display
-const ETH_USDT_RATE = 2500
-
 export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPanelProps) {
   const t = useT()
   const { address, shortAddress, status } = useWallet()
+  const writeAccess = useSessionWriteAccess(session.chainId)
   const transactionFlow = useTransactionFlow()
   const {
     claimPrincipalAndPenalty,
@@ -47,14 +45,11 @@ export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPane
     return null
   }
 
-  const isEth = session.paymentToken === ZeroAddress
   const tokenSymbol = getPaymentTokenSymbol(
     session.paymentToken,
     session.paymentTokenSymbol
   )
-  const ticketPriceNum = toTokenNumber(session.ticketPrice, session.paymentTokenDecimals)
   const principalAmountWei = session.ticketPrice * BigInt(playerTicketCount)
-  const principalAmount = ticketPriceNum * playerTicketCount
 
   const slashBps = isCreatorAbsentSettled
     ? session.creatorAbsentPartnerDepositSlashBps
@@ -62,10 +57,6 @@ export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPane
   const compensationAmountWei =
     (session.ticketPrice * BigInt(slashBps) * BigInt(playerTicketCount)) / 10000n
   const totalRefundWei = principalAmountWei + compensationAmountWei
-  const compensationPerTicket = (ticketPriceNum * slashBps) / 10000
-  const compensationAmount = compensationPerTicket * playerTicketCount
-  const totalRefund = principalAmount + compensationAmount
-  const totalRefundUsdt = totalRefund * ETH_USDT_RATE
   const loading = isCreatorAbsentSettled ? creatorAbsentLoading : unsoldLoading
   const error = isCreatorAbsentSettled ? creatorAbsentError : unsoldError
   const description = isCreatorAbsentSettled
@@ -73,7 +64,7 @@ export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPane
     : t.session.claimRefundDesc
 
   const handleClaim = async () => {
-    if (!address || claimed) return
+    if (!address || claimed || !writeAccess.canWrite) return
 
     const controller = transactionFlow.createController({
       chainId: session.chainId,
@@ -84,8 +75,8 @@ export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPane
       ],
     })
     const result = isCreatorAbsentSettled
-      ? await claimPrincipalAndCompensation(session.sessionAddress, controller.callbacks)
-      : await claimPrincipalAndPenalty(session.sessionAddress, controller.callbacks)
+      ? await claimPrincipalAndCompensation(session.sessionAddress, session.chainId, controller.callbacks)
+      : await claimPrincipalAndPenalty(session.sessionAddress, session.chainId, controller.callbacks)
     if (result) {
       setClaimed(true)
       setSuccess(true)
@@ -131,11 +122,6 @@ export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPane
             <p className="font-bold text-lg text-primary">
               {formatTokenAmount(totalRefundWei, session.paymentTokenDecimals, tokenSymbol)}
             </p>
-            {isEth && (
-              <p className="text-xs text-base-content/40">
-                ~{totalRefundUsdt.toFixed(2)} USDT
-              </p>
-            )}
           </div>
         </div>
 
@@ -155,12 +141,13 @@ export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPane
           </div>
         )}
 
+        <SessionNetworkNotice chainId={session.chainId} />
         {/* Claim button */}
         {!claimed ? (
           <button
             className="btn btn-warning btn-block gap-2"
             onClick={handleClaim}
-            disabled={!isConnected || loading}
+            disabled={!writeAccess.canWrite || loading}
           >
             {loading ? (
               <>

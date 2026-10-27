@@ -3,6 +3,8 @@
 import { useRef, useState, useEffect, useCallback } from "react"
 import { Activity, RefreshCw, ChevronDown, X, Globe } from "lucide-react"
 import { useRpc } from "@/lib/rpc/context"
+import { getOneTapCopy } from "@/lib/one-tap-copy"
+import { useLocale } from "@/lib/i18n/context"
 import { useT } from "@/lib/i18n/context"
 import { CHAINS, type ChainId } from "@/lib/rpc/nodes"
 
@@ -24,11 +26,16 @@ function NodeListContent({
     enableAuto,
     refreshAll,
     setChain,
+    testnetAccess,
   } = useRpc()
   const t = useT()
+  const [locale] = useLocale()
+  const copy = getOneTapCopy(locale)
 
   return (
     <>
+      {testnetAccess.loading && <p className="mb-3 text-xs" role="status">{copy.adminChecking}</p>}
+      {testnetAccess.error && <div className="mb-3 text-xs" role="alert"><p>{copy.adminReadFailed}</p><button className="btn btn-ghost btn-sm" onClick={testnetAccess.refresh}>{copy.adminRetry}</button></div>}
       {/* Chain switcher */}
       {availableChains.length > 1 && (
         <>

@@ -9,6 +9,8 @@ import {
   useState,
   type ReactNode,
 } from "react"
+import { WriteContextError } from "@/lib/contracts/write-guard"
+import { useOneTapCopy } from "@/components/one-tap/navigation"
 import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, SendHorizonal, Wallet, X } from "lucide-react"
 import type { ContractTransactionResponse } from "ethers"
 import { useT } from "@/lib/i18n/context"
@@ -99,6 +101,7 @@ function formatTransactionError(error: unknown, t: Dictionary) {
 
 export function TransactionFlowProvider({ children }: { children: ReactNode }) {
   const t = useT()
+  const copy = useOneTapCopy()
   const [state, setState] = useState<TransactionOverlayState | null>(null)
   const counterRef = useRef(0)
 
@@ -148,12 +151,12 @@ export function TransactionFlowProvider({ children }: { children: ReactNode }) {
             setStage("success", tx)
           },
           onError: (error) => {
-            setStage("error", null, formatTransactionError(error, t))
+            setStage("error", null, error instanceof WriteContextError ? copy.walletContextChanged : formatTransactionError(error, t))
           },
         },
       }
     },
-    [t, updateState]
+    [t, copy.walletContextChanged, updateState]
   )
 
   const close = useCallback(() => {

@@ -9,6 +9,7 @@ import {
   Loader2,
   Settings,
 } from "lucide-react";
+import { SessionNetworkNotice, useSessionWriteAccess } from "@/components/session-network-notice"
 import { useTransactionFlow } from "@/components/transaction-flow-provider";
 import {
   doesCreatorSecretMatchCommitment,
@@ -39,6 +40,7 @@ export function CreatorPanel({
 }: CreatorPanelProps) {
   const t = useT();
   const { address, shortAddress } = useWallet();
+  const writeAccess = useSessionWriteAccess(session.chainId)
   const transactionFlow = useTransactionFlow();
   const {
     finalizeUnsoldSettlement,
@@ -108,20 +110,21 @@ export function CreatorPanel({
     isCreatorAbsentSettled || (allTicketsSold && !session.isSettled);
 
   const canFinalizeUnsold =
-    isCreator && !session.isSettled && commitEnded && hasUnsoldTickets;
+    writeAccess.canWrite && isCreator && !session.isSettled && commitEnded && hasUnsoldTickets;
   const canReveal =
-    isCreator &&
+    writeAccess.canWrite && isCreator &&
     !session.isSettled &&
     allTicketsSold &&
     !revealEnded;
   const canFinalizeCreatorAbsent =
-    isAdmin && !session.isSettled && allTicketsSold && revealEnded;
+    writeAccess.canWrite && isAdmin && !session.isSettled && allTicketsSold && revealEnded;
 
   const handleFinalizeUnsold = async () => {
     if (!canFinalizeUnsold) return;
     setUnsoldSuccess(false);
     const tx = await finalizeUnsoldSettlement(
       session.sessionAddress,
+      session.chainId,
       transactionFlow.createController({
         chainId: session.chainId,
         fields: [
@@ -177,6 +180,7 @@ export function CreatorPanel({
 
     const tx = await revealSession(
       session.sessionAddress,
+      session.chainId,
       normalizedSecret,
       transactionFlow.createController({
         chainId: session.chainId,
@@ -206,6 +210,7 @@ export function CreatorPanel({
     setCreatorAbsentSuccess(false);
     const tx = await finalizeCreatorAbsentSettlement(
       session.sessionAddress,
+      session.chainId,
       transactionFlow.createController({
         chainId: session.chainId,
         fields: [
@@ -233,6 +238,7 @@ export function CreatorPanel({
   return (
     <div className="card bg-base-200 border border-warning/30">
       <div className="card-body gap-4">
+        <SessionNetworkNotice chainId={session.chainId} />
         <div className="flex items-center gap-2">
           <Settings className="h-5 w-5 text-warning" />
           <h3 className="font-bold text-lg">{t.session.creatorPanel}</h3>

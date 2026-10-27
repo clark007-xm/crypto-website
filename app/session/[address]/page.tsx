@@ -26,10 +26,8 @@ import { BuyModal } from "@/components/buy-modal"
 import { CreatorPanel } from "@/components/creator-panel"
 import { PlayerClaimPanel } from "@/components/player-claim-panel"
 import { SessionTreasuryCard } from "@/components/session-treasury-card"
-import { formatTokenValue, formatTokenAmount, getPaymentTokenSymbol, toTokenNumber } from "@/lib/token-format"
+import { formatTokenValue, formatTokenAmount, getPaymentTokenSymbol } from "@/lib/token-format"
 
-// ETH to USDT rate for display
-const ETH_USDT_RATE = 2500
 
 function formatShortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`
@@ -137,16 +135,12 @@ export default function SessionDetailPage() {
   const { days, hours, minutes, seconds } = useCountdown(endTimeMs)
   
   // Calculate values
-  const isEth = resolvedSession?.paymentToken === ZeroAddress
   const tokenSymbol = getPaymentTokenSymbol(
     resolvedSession?.paymentToken,
     resolvedSession?.paymentTokenSymbol
   )
   const productLabel = getProductInfoLabel(resolvedProductInfoId)
   const productShortLabel = getProductInfoShortLabel(resolvedProductInfoId)
-  const ticketPriceNum = resolvedSession
-    ? toTokenNumber(resolvedSession.ticketPrice, resolvedSession.paymentTokenDecimals)
-    : 0
   const totalTickets = resolvedSession ? Number(resolvedSession.totalTickets) : 0
   const ticketsSold = resolvedSession ? Number(resolvedSession.ticketsSold) : 0
   const availableTickets = Math.max(totalTickets - ticketsSold, 0)
@@ -321,11 +315,6 @@ export default function SessionDetailPage() {
                 )}</span>
                 <span className="ot-mobile-only">{formatTokenValue(resolvedSession.ticketPrice * resolvedSession.totalTickets, resolvedSession.paymentTokenDecimals).replace(/\.?0+$/, "")}<small>{tokenSymbol}</small></span>
               </p>
-              {isEth && (
-                <p className="text-sm text-base-content/40 mt-1">
-                  ~{(ticketPriceNum * totalTickets * ETH_USDT_RATE).toFixed(2)} USDT
-                </p>
-              )}
             </div>
             
             {/* Countdown */}
@@ -375,11 +364,6 @@ export default function SessionDetailPage() {
                     resolvedSession.ticketPrice,
                     resolvedSession.paymentTokenDecimals,
                     tokenSymbol
-                  )}
-                  {isEth && (
-                    <span className="text-xs text-base-content/40 ml-1">
-                      (~{(ticketPriceNum * ETH_USDT_RATE).toFixed(2)} USDT)
-                    </span>
                   )}
                 </span>
               </div>
@@ -539,7 +523,6 @@ export default function SessionDetailPage() {
           isOpen={buyModalOpen}
           onClose={() => setBuyModalOpen(false)}
           session={resolvedSession}
-          ethPrice={ETH_USDT_RATE}
           onPurchaseSuccess={handlePurchaseSuccess}
         />
       )}

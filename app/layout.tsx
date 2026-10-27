@@ -41,14 +41,14 @@ export default function RootLayout({
       <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}>
         <ThemeProvider attribute="data-theme" defaultTheme="onetap-light" themes={["onetap-light", "onetap-dark"]} enableSystem={false} storageKey="onetap-theme">
         <I18nProvider>
-          <RpcProvider>
-            <WalletProvider>
+          <WalletProvider>
+            <RpcProvider>
               <TransactionFlowProvider>
                 {children}
                 <React.Suspense><BottomNavigation /></React.Suspense>
               </TransactionFlowProvider>
-            </WalletProvider>
-          </RpcProvider>
+            </RpcProvider>
+          </WalletProvider>
         </I18nProvider>
         </ThemeProvider>
       </body>

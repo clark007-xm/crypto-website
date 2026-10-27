@@ -10,8 +10,7 @@ import { getSessionPhaseState, type SessionConfigFromEvent } from "@/lib/contrac
 import { getExplorerAddressUrl } from "@/lib/contracts/addresses"
 import { loadLocalSessionProductInfo } from "@/lib/local-session-product-info"
 import { getProductInfoLabel, getProductInfoShortLabel } from "@/lib/product-info"
-import { ZeroAddress } from "ethers"
-import { formatTokenAmount, getPaymentTokenSymbol, toTokenNumber } from "@/lib/token-format"
+import { formatTokenAmount, getPaymentTokenSymbol } from "@/lib/token-format"
 import Link from "next/link"
 
 const ConnectModal = dynamic(
@@ -22,8 +21,6 @@ interface SessionCardProps {
   session: SessionConfigFromEvent
 }
 
-// ETH to USDT rate for display
-const ETH_USDT_RATE = 2500
 
 export function SessionCard({ session }: SessionCardProps) {
   const t = useT()
@@ -58,7 +55,6 @@ export function SessionCard({ session }: SessionCardProps) {
   const { days, hours, minutes, seconds } = useCountdown(endTimeMs)
 
   // Determine if using ETH or ERC20 token
-  const isEth = session.paymentToken === ZeroAddress
   const tokenSymbol = getPaymentTokenSymbol(
     session.paymentToken,
     session.paymentTokenSymbol
@@ -66,10 +62,6 @@ export function SessionCard({ session }: SessionCardProps) {
   const productLabel = getProductInfoLabel(resolvedProductInfoId)
   const productShortLabel = getProductInfoShortLabel(resolvedProductInfoId)
 
-  const ticketPriceNum = toTokenNumber(
-    session.ticketPrice,
-    session.paymentTokenDecimals
-  )
   
   const totalTickets = Number(session.totalTickets)
   const ticketsSold = Number(session.ticketsSold)
@@ -77,8 +69,6 @@ export function SessionCard({ session }: SessionCardProps) {
   const remaining = totalTickets - ticketsSold
   
   // Calculate pool value
-  const totalPoolValue = ticketPriceNum * totalTickets
-  const totalPoolUsdt = totalPoolValue * ETH_USDT_RATE
 
   const isSettled = session.isSettled
 
@@ -181,7 +171,7 @@ export function SessionCard({ session }: SessionCardProps) {
           </p>
           <p className="text-xs text-base-content/40 mt-1">
             {formatTokenAmount(session.ticketPrice, session.paymentTokenDecimals, tokenSymbol)} / {t.products.ticket}
-            {isEth && <span className="ml-1">(~{totalPoolUsdt.toFixed(2)} USDT)</span>}
+
           </p>
         </div>
 

@@ -12,15 +12,15 @@ const values={admin:address,creator:address,productInfoId:1n,sessionCommitment:h
 const tick=()=>new Promise(r=>setImmediate(r));
 function fixture(fail){const calls=[];return {calls,chainId:1,send:async(method,params,signal)=>{signal.throwIfAborted();assert.equal(method,'eth_call');const iface=params[0].to===other?tokenAbi:sessionAbi;const name=iface.parseTransaction({data:params[0].data}).name;calls.push(name);if(name===fail)throw new ChainReadError('rate-limit');return iface.encodeFunctionResult(name,[values[name]])}};}
 
-test('detail state reads once in sequence, retains token precision and never scans winner history inline',async()=>{
+test('detail state reads once in sequence, uses ETH units despite legacy paymentToken and never scans winner history inline',async()=>{
  const client=fixture();const info=await readSessionDetails(client,address,new AbortController().signal);
- assert.equal(client.calls.length,19);assert.equal(new Set(client.calls).size,19);assert.equal(info.paymentTokenDecimals,6);assert.equal(info.ticketPrice,1000000n);assert.equal(info.isSettled,false);assert.equal(info.winner,ZeroAddress);
+ assert.equal(client.calls.length,17);assert.equal(new Set(client.calls).size,17);assert.equal(info.paymentTokenDecimals,18);assert.equal(info.ticketPrice,1000000n);assert.equal(info.isSettled,false);assert.equal(info.winner,ZeroAddress);
 });
 test('detail state stops at the first 429 instead of fabricating zero/false fields',async()=>{
  const client=fixture('creator');await assert.rejects(readSessionDetails(client,address,new AbortController().signal),e=>e.kind==='rate-limit');assert.deepEqual(client.calls,['admin','creator']);
 });
-test('metadata failure cannot return a usable session with a guessed amount precision',async()=>{
- const client=fixture('decimals');await assert.rejects(readSessionDetails(client,address,new AbortController().signal),e=>e.kind==='rate-limit');assert.ok(!client.calls.includes('symbol'));
+test('ETH settlement never depends on ERC20 metadata availability',async()=>{
+ const client=fixture('decimals');const info=await readSessionDetails(client,address,new AbortController().signal);assert.equal(info.paymentTokenSymbol,'ETH');assert.equal(info.paymentToken,other);assert.ok(!client.calls.includes('decimals'));assert.ok(!client.calls.includes('symbol'));
 });
 test('detail cancellation stops between contract fields',async()=>{
  const controller=new AbortController(),client=fixture();const send=client.send;client.send=async(...args)=>{const value=await send(...args);controller.abort();return value};

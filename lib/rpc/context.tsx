@@ -6,11 +6,14 @@ import React, {
   useContext,
   useEffect,
   useRef,
+  useMemo,
   useState,
 } from "react"
 import { JsonRpcProvider } from "ethers"
 import type { ChainId, NodeHealth, RpcNode } from "./nodes"
-import { CHAINS, DEFAULT_CHAIN, getAvailableChains, getNodesByChain } from "./nodes"
+import { useTestnetAccess } from "./use-testnet-access"
+import { allowedRpcChain } from "./admin-access"
+import { CHAINS, DEFAULT_CHAIN, getNodesByChain } from "./nodes"
 
 /* ── constants ── */
 const PING_TIMEOUT = 5_000
@@ -94,125 +97,67 @@ interface RpcContextValue {
   selectNode: (id: string) => void
   enableAuto: () => void
   refreshAll: () => void
+  testnetAccess: { loading: boolean; error: boolean; refresh: () => void }
 }
 
 const RpcContext = createContext<RpcContextValue | null>(null)
 
 /* ── provider component ── */
 export function RpcProvider({ children }: { children: React.ReactNode }) {
-  const [chain, setChainState] = useState<ChainId>(DEFAULT_CHAIN)
-  const [nodes, setNodes] = useState<RpcNode[]>(() => getNodesByChain(DEFAULT_CHAIN))
-  const [healths, setHealths] = useState<Map<string, NodeHealth>>(new Map())
-  const [activeNode, setActiveNode] = useState<RpcNode>(() => getNodesByChain(DEFAULT_CHAIN)[0])
-  const [autoMode, setAutoMode] = useState(true)
-  const [ready, setReady] = useState(false)
-  const [readProvider, setReadProvider] = useState<JsonRpcProvider | null>(null)
-
-  const availableChains = getAvailableChains()
-
-  const autoRef = useRef(autoMode)
-  autoRef.current = autoMode
-  const activeNodeRef = useRef(activeNode)
-  activeNodeRef.current = activeNode
-  const nodesRef = useRef(nodes)
-  nodesRef.current = nodes
-
-  /* ── update read provider when active node changes ── */
+  const testnetAccess = useTestnetAccess()
+  const [requestedChain, setRequestedChain] = useState<ChainId>(DEFAULT_CHAIN)
+  const chain = allowedRpcChain(requestedChain, testnetAccess.authorized)
+  const nodes = useMemo(() => getNodesByChain(chain), [chain])
+  const availableChains: ChainId[] = testnetAccess.authorized ? ["eth-mainnet", "sepolia"] : ["eth-mainnet"]
+  const [selection, setSelection] = useState<{ chain: ChainId; node: RpcNode; auto: boolean } | null>(null)
+  const [benchmark, setBenchmark] = useState<{ chain: ChainId; healths: Map<string, NodeHealth> } | null>(null)
+  const activeNode = selection?.chain === chain ? selection.node : nodes[0]
+  const autoMode = selection?.chain === chain ? selection.auto : true
+  const ready = benchmark?.chain === chain
+  const healths = useMemo(() => benchmark?.chain === chain ? benchmark.healths : new Map<string, NodeHealth>(), [benchmark, chain])
+  const [providerState, setProviderState] = useState<{ key: string; provider: JsonRpcProvider } | null>(null)
+  const providerKey = `${chain}:${activeNode.url}`
+  const readProvider = providerState?.key === providerKey ? providerState.provider : null
   useEffect(() => {
-    const p = new JsonRpcProvider(activeNode.url, undefined, {
-      polling: false,
-      staticNetwork: true,
-      batchMaxCount: 1, // Disable batching - DRPC free tier limits to 3 batch requests
+    const provider = new JsonRpcProvider(activeNode.url, CHAINS[chain].numericId, {
+      polling: false, staticNetwork: true, batchMaxCount: 1,
     })
-    setReadProvider(p)
-    return () => {
-      p.destroy()
-    }
-  }, [activeNode])
+    setProviderState({ key: providerKey, provider })
+    return () => provider.destroy()
+  }, [activeNode.url, chain, providerKey])
 
-  /* ── benchmark all (stable ref) ── */
+  // Old-chain or older benchmark results must never replace the current node.
+  const current = useRef({ chain, activeNode, autoMode, authorized: testnetAccess.authorized })
+  current.current = { chain, activeNode, autoMode, authorized: testnetAccess.authorized }
+  const generation = useRef(0)
   const benchmarkAll = useCallback(async () => {
-    const currentNodes = nodesRef.current
-    const results = await Promise.all(currentNodes.map(pingNode))
-    const next = new Map<string, NodeHealth>()
-    for (const r of results) next.set(r.id, r)
-    setHealths(next)
-
-    if (autoRef.current) {
-      const best = pickBestNode(currentNodes, next)
-      setActiveNode(best)
-    } else {
-      const currentHealth = next.get(activeNodeRef.current.id)
-      if (!currentHealth || currentHealth.status === "offline") {
-        const best = pickBestNode(currentNodes, next)
-        setActiveNode(best)
-        setAutoMode(true)
-      }
+    const request = ++generation.current
+    const results = await Promise.all(nodes.map(pingNode))
+    if (request !== generation.current || current.current.chain !== chain) return
+    const next = new Map(results.map(result => [result.id, result]))
+    setBenchmark({ chain, healths: next })
+    const state = current.current
+    if (state.autoMode || next.get(state.activeNode.id)?.status === "offline") {
+      setSelection({ chain, node: pickBestNode(nodes, next), auto: true })
     }
-    setReady(true)
-  }, [])
-
-  /* ── run benchmark on mount and when chain changes ── */
-  const chainIdRef = useRef(chain)
-  useEffect(() => {
-    // Only re-run if chain actually changed (handled by setChain calling benchmarkAll)
-    if (chainIdRef.current !== chain) {
-      chainIdRef.current = chain
-      benchmarkAll()
-    }
-  }, [chain, benchmarkAll])
-
+  }, [chain, nodes])
   useEffect(() => {
     void benchmarkAll()
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        void benchmarkAll()
-      }
-    }
-
-    document.addEventListener("visibilitychange", handleVisibilityChange)
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange)
-    }
+    const visible = () => { if (document.visibilityState === "visible") void benchmarkAll() }
+    document.addEventListener("visibilitychange", visible)
+    return () => { generation.current++; document.removeEventListener("visibilitychange", visible) }
   }, [benchmarkAll])
-
-  /* ── chain switching ── */
-  const chainRef = useRef(chain)
-  chainRef.current = chain
-  const benchmarkAllRef = useRef(benchmarkAll)
-  benchmarkAllRef.current = benchmarkAll
-
-  const setChain = useCallback((newChain: ChainId) => {
-    if (newChain === chainRef.current) return
-    setChainState(newChain)
-    const newNodes = getNodesByChain(newChain)
-    setNodes(newNodes)
-    nodesRef.current = newNodes
-    setActiveNode(newNodes[0])
-    activeNodeRef.current = newNodes[0]
-    setHealths(new Map())
-    setReady(false)
-    setAutoMode(true)
+  const setChain = useCallback((next: ChainId) => {
+    if (next === "sepolia" && !current.current.authorized) return
+    setRequestedChain(next)
   }, [])
-
-  /* ── actions ── */
-  const selectNode = useCallback(
-    (id: string) => {
-      const node = nodes.find((n) => n.id === id)
-      if (node) {
-        setActiveNode(node)
-        setAutoMode(false)
-      }
-    },
-    [nodes]
-  )
-
+  const selectNode = useCallback((id: string) => {
+    const node = nodes.find(value => value.id === id)
+    if (node) setSelection({ chain, node, auto: false })
+  }, [chain, nodes])
   const enableAuto = useCallback(() => {
-    setAutoMode(true)
-    const best = pickBestNode(nodes, healths)
-    setActiveNode(best)
-  }, [nodes, healths])
+    setSelection({ chain, node: pickBestNode(nodes, healths), auto: true })
+  }, [chain, nodes, healths])
 
   return (
     <RpcContext.Provider
@@ -229,6 +174,7 @@ export function RpcProvider({ children }: { children: React.ReactNode }) {
         selectNode,
         enableAuto,
         refreshAll: benchmarkAll,
+        testnetAccess,
       }}
     >
       {children}
