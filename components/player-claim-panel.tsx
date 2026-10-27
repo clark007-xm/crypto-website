@@ -54,8 +54,9 @@ export function PlayerClaimPanel({ session, playerTicketCount }: PlayerClaimPane
   const slashBps = isCreatorAbsentSettled
     ? session.creatorAbsentPartnerDepositSlashBps
     : session.unsoldTicketsPartnerDepositSlashBps
-  const compensationAmountWei =
-    (session.ticketPrice * BigInt(slashBps) * BigInt(playerTicketCount)) / 10000n
+  // The contract floors each ticket's compensation before multiplying by ticket count.
+  const compensationPerTicketWei = (session.ticketPrice * BigInt(slashBps)) / 10000n
+  const compensationAmountWei = compensationPerTicketWei * BigInt(playerTicketCount)
   const totalRefundWei = principalAmountWei + compensationAmountWei
   const loading = isCreatorAbsentSettled ? creatorAbsentLoading : unsoldLoading
   const error = isCreatorAbsentSettled ? creatorAbsentError : unsoldError

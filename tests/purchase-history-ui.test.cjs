@@ -131,3 +131,19 @@ test('both refund settlements retain their ETH amounts and actionable claim pane
     finally { connected = true; }
   }
 });
+
+test('refund compensation rounds per ticket before multiplying, matching contract execution', () => {
+  const cases = [
+    { settlementType: 1, ticketPrice: 10009n, unsold: 1000, absent: 5000, expected: '0.000000000000003 ETH', incorrect: '0.000000000000003002 ETH' },
+    { settlementType: 2, ticketPrice: 10002n, unsold: 0, absent: 3333, expected: '0.000000000000009999 ETH', incorrect: '0.00000000000001 ETH' },
+    { settlementType: 1, ticketPrice: 10009n, unsold: 0, absent: 5000, expected: '0.0000 ETH' },
+  ];
+  for (const example of cases) {
+    const session = { settlementType: example.settlementType, chainId: 11155111, ticketPrice: example.ticketPrice,
+      paymentToken: '0x'+'3'.repeat(40), paymentTokenDecimals: 18, paymentTokenSymbol: 'ETH',
+      unsoldTicketsPartnerDepositSlashBps: example.unsold, creatorAbsentPartnerDepositSlashBps: example.absent };
+    const html = renderToStaticMarkup(React.createElement(PlayerClaimPanel, { session, playerTicketCount: 3 }));
+    assert.ok(html.includes('+' + example.expected), `settlement ${example.settlementType}, unsold ${example.unsold}`);
+    if (example.incorrect) assert.ok(!html.includes('+' + example.incorrect));
+  }
+});
